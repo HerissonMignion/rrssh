@@ -1,0 +1,8 @@
+
+
+command [ ls ]
+command [ echo ]
+command [ ls -lh / ]
+command [ echo ]
+command [ df ]
+

@@ -1,0 +1,701 @@
+#!/usr/bin/env bash
+
+# MUST: Process substitution are not allowed.  Older container
+# technologies prior to docker breaks process substitutions inside
+# them.
+
+# MUST: Support older bash versions.  No fancy features other than
+# basic list manipulations.
+
+# TODO: un pretty printer
+
+# TODO: rendre chaque commandes externes testable pour des failures en
+# passant par une commande intermédire qui compare un id fourni pour
+# savoir si on doit provoquer le non-happy path.
+
+# TODO: améliorer l'anglais dans le message d'aide.
+
+
+help() {
+	cat <<"HELP";
+NAME
+
+	rrssh - remote recursive ssh
+
+SYNOPSIS
+
+	rrssh [<options>...] <main-command> [--- <commands>...]
+
+DESCRIPTION
+
+	An automation tool that uses ssh to jump through any number of
+	hosts to run commands and transfer files and directories.  Its
+	commands are a basic shell-like scripting language provided in
+	arguments or in a file.  Execution of the script and file
+	transfers will span as many hosts as indicated.  A strong panic
+	mecanism will stop the execution at any unexpected failures,
+	either external commands exiting with an unhandled non-0 code or
+	an internal rrssh failure.
+
+	Rrssh is a bash script that implements a recursive scripting
+	language.  Rrssh is, in most part, a bash "kernel" that duplicates
+	itself locally or through an ssh connection.  Because of its
+	nature, rrssh has an extensive test suite to ensure its
+	reliability.
+
+	The only requirements for the target hosts are an old bash version
+	and basic utilities.
+
+MAIN COMMANDS
+
+	For the main commands that need a script, the script must be
+	provided either with the option --- or -f.
+
+	run
+
+		Run the script.
+
+	check
+
+		Examine the script for syntax errors and other problems
+		without running it.
+
+	print [-n <index>] [-lt]
+
+		Prints the script, one token per line.  With -n, only print
+		that token.  Tokens are indexed at 0.  With -t, only print the
+		amount of tokens.  With -l, do not quote the tokens using
+		printf %q.
+
+	pretty-print
+
+		Pretty prints the script for an easier visual analysis.
+
+	walk
+
+		Try going through all the hosts and all the user switchings,
+		without running any commands.
+
+	print-kernel
+
+		Duplicates the kernel to stdout.  Send it to shellcheck for
+		analysis.
+
+OPTIONS
+
+	-h, --help
+
+		Show this help message.
+
+	--- <commands>...
+
+		Stop reading options and arguments.  The remaining arguments
+		will be interpreted as a script.  --- is necessary if the
+		script is provided by arguments.
+
+	-f, --file <filepath>
+
+		Provide a file of commands to execute instead of reading from
+		the arguments.  If file is "-", then read from stdin.
+
+	-n <index>
+
+		Read the description of the command "print".
+
+	-l, -t
+
+		Read the description of the command "print".
+
+	--make-command-fail <id>
+
+		Do not use this.  This is intended for the test suite.  Makes
+		a command fail to validate the behavior of the error paths.
+
+COMMANDS
+
+	In the following, square brackets [ ] may indicate optionnal
+	arguments or literal arguments to be provided to rrssh.
+
+	host <destination> : <commands>...
+	host <destination> [ <commands>... ]
+	sudo-host <destination> : <commands>...
+	sudo-host <destination> [ <commands>... ]
+
+		These commands are the main purpose of using rrssh.
+		Duplicates the kernel through a single ssh connection and
+		execute the sub commands on the remote host.  This command can
+		include itself arbitrarily many times to reach any depth.  The
+		[ ] variants are scoped.  The : variants takes all the
+		commands until the end of the current scope.  The sudo
+		variants will run the actual ssh command through sudo.
+
+	su <user> [ <commands>... ]
+	sudo-su <user> [ <commands>... ]
+
+		TODO
+
+	command <system-command>
+	command [ <argv>... ]
+	--- <argv>... ---
+
+		TODO
+
+	for <variable> in <values>... [ <commands>... ]
+	for <variable> <delim> <values>... <delim> <command>
+	for <variable> <delim> <values>... <delim> [ <commands>... ]
+	for <variable> --- <values>... --- <command>
+	for <variable> --- <values>... --- [ <commands>... ]
+
+		Loop a block of code over some values.  Each time, all
+		instances of <variable> in the commands will be substituted.
+		Use special symbols to avoid replacing unwanted parts of the
+		commands.  You cannot replace syntax elements of the language
+		with variables.
+
+	var <variable> <value>
+
+		Create a variable.  The variable is available and affectable
+		in the current scope and all child scopes.  You cannot create
+		a variable if its name already exists in the current scope.
+		Use the hosts' "test" command with rrssh's "command" command
+		to compare its value.
+
+	set-var <variable> <value>
+
+		Change the value of a variable.  The variable must have
+		previously been created with the var command in the current
+		scope or a parent scope.
+
+	if <command> then <command>
+			[ elif <command> then <command> ]...
+			[ else <command> then <command> ]
+			fi
+
+		TODO
+
+pour implémenter les if et les scopes, il faut donner au nouveau
+kernel le token qui met fin à son scope (pour les scope) et une option
+qui indique qu'il doit rouler une seule commande (pour les if).
+
+
+
+
+HELP
+}
+
+
+opt_file=0;
+arg_file="";
+
+opt_n=0;
+arg_n="";
+
+opt_l=0;
+opt_t=0;
+
+opt_script_provided=0;
+arg_script=();
+
+trailing_args=();
+while (($#)); do
+	arg=$1;
+	shift;
+	case "$arg" in
+		(-h|--help)
+			help;
+			exit 0;
+			;;
+		(---)
+			opt_script_provided=1;
+			arg_script=("$@");
+			set --;
+			break;
+			;;
+		(-f|--file)
+			opt_file=1;
+			arg_file=$1;
+			shift;
+			;;
+		(-n)
+			opt_n=1;
+			arg_n=$1;
+			[[ "$arg_n" =~ ^[0-9]+$ ]] || {
+				1>&2 echo "The value provided to -n must be numeric and positive.";
+				exit 1;
+			};
+			shift;
+		    ;;
+		(-l)
+			opt_l=1;
+			;;
+		(-t)
+			opt_t=1;
+			;;
+		(*)
+			trailing_args+=("$arg");
+			;;
+	esac
+done;
+set -- "${trailing_args[@]}" "$@";
+unset trailing_args;
+unset arg;
+
+
+testable() {
+	local command_id=$1;
+	shift;
+	"$@" 3>&-;
+}
+
+
+
+
+
+dump_bin() {
+	echo @binary_object;
+	# TODO: i probably have to send useless chars and read them back
+	# because base64 doesn't seem to handle an actual empty stream.
+	base64;
+	echo @end;
+}
+read_line() {
+	local IFS="";
+	local line;
+	read -r line;
+	printf %s "$line";
+}
+read_bin() {
+	local first_line=$(read_line);
+	[ "$first_line" == @binary_object ] || return 1;
+	{
+		while IFS="" read -r line || [ -n "$line" ]; do
+			[ "$line" == @end ] && break;
+			printf %s "$line";
+		done;
+	} | base64 --decode;
+}
+
+
+print_kernel() {
+	cat <<"KERNEL";
+#!/bin/bash
+
+# The shebang line is for shellcheck
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd);
+KERNEL_PATH=$SCRIPT_DIR/${0##*/};
+
+# stdout for communication.  stderr for accidental garbage and trying
+# to raise a sigpipe.  stdout is moved to 3 to avoid accidental
+# garbage from breaking the protocol.
+exec 3>&1 1>&2;
+
+KERNEL
+
+	declare -f dump_bin;
+	declare -f read_line;
+	declare -f read_bin;
+	declare -f print_kernel;
+
+	cat <<"KERNEL";
+
+
+echocom() {
+	echo "$@" 1>&3;
+}
+
+send_to_stdout() {
+	echocom @print_stdout;
+	dump_bin 1>&3;
+}
+send_to_stderr() {
+	echocom @print_stderr;
+	dump_bin 1>&3;
+}
+
+echoout() {
+	echo "$@" | send_to_stdout;
+}
+printfout() {
+	printf "$@" | send_to_stdout;
+}
+
+echoerr() {
+	echo "$@" | send_to_stderr;
+}
+printferr() {
+	printf "$@" | send_to_stderr;
+}
+
+
+
+
+
+
+
+
+# the multiple "operation modes" of the kernel are for scanning or
+# other details without having to duplicate code.
+
+# The calling protocol of the kernel never requires the whole user
+# script to be provided by arguments because it may be
+# "dangerously" long (i dont know whether there is a platform with an
+# argument limit) or it may contain credentials (must not show up in
+# ps aux).
+
+# The user script, files and directories to transmit, most information
+# and other "object" types must be provided at the end of the kernel
+# script.  Some basic information like the "operation mode" is
+# provided via arguments, though.  The line "###;;;" indicates the end
+# of the kernel and the beginning of the objects.  First we put all
+# small-ish object, which is anything other than files and folders,
+# then a separator, then we dump files and folders.  This is to avoid
+# the need to skip large files/folders and thus speed up a little bit.
+
+
+# operation mode
+op_mode=""; # enum of: run scan
+
+# are we the first kernel?  therefore we dont have a parent scope.
+is_root_kernel=0;
+
+# if we are not the root kernel, then this is the token that's gonna
+# close our scope.
+toplevel_scope_closing_token="";
+
+# are we suposed to run only one command chain?
+is_one_command_chain_limit=0;
+
+
+
+
+while (($#)); do
+	arg=$1;
+	shift;
+	case "$arg" in
+		(--mode)
+			op_mode=$1;
+			shift;
+			;;
+		(--root)
+			is_root_kernel=1;
+			;;
+		(--toplevel-scope-closing-token)
+			toplevel_scope_closing_token=$1
+			shift;
+			;;
+		(--one-command-chain-limit)
+			is_one_command_chain_limit=1;
+			;;
+	esac;
+done;
+unset arg;
+
+
+
+
+toplevel_args=();
+
+shift_toplevel_args() {
+	local shift_count=${1:-1};
+	set -- "${toplevel_args[@]}";
+	shift "$shift_count";
+	toplevel_args=("$@");
+}
+peek_toplevel_args() {
+	printf %s "${toplevel_args[0]}";
+}
+any_toplevel_args_remaining() {
+	((${#toplevel_args[@]} > 0));
+}
+
+skip_kernel() {
+	while IFS="" read -r line || [ -n "$line" ]; do
+		[ "$line" == "###;;;" ] && break;
+	done;
+}
+load_eof_values() {
+	local object_type;
+	{
+		skip_kernel;
+		while IFS="" read -r object_type || [ -n "$object_type" ]; do
+			case "$object_type" in
+				(@end_of_header)
+					break;
+					;;
+				(@toplevel_arg)
+					toplevel_args+=("$(read_bin)");
+					;;
+			esac;
+		done;
+	} < "$KERNEL_PATH";
+}
+
+
+
+
+
+
+
+begin_basic_fork() {
+	print_kernel;
+	echo;
+	echo '###;;;';
+}
+
+
+
+# The "contract" with the command commands is as follow: They are
+# responsible for shifting and consuming the toplevel_args because
+# only they know how much arguments they consume.  They must respect
+# the value of op_mode.  They can panic.  They must use their
+# exit-code to indicate whether they must be considered successful or
+# in error in regards to the operators and or not try.
+
+command_command() {
+	shift_toplevel_args;
+
+	local first_arg=$(peek_toplevel_args);
+	local string_command=$first_arg;
+	shift_toplevel_args;
+	local argv=();
+	local is_string=1;
+	local end_token="";
+	case "$first_arg" in
+		(---)
+			end_token="---";
+			is_string=0;
+			;;
+		('[')
+			end_token="]";
+			is_string=0;
+			;;
+	esac; # ) this fixes emacs electric pair.
+
+	local end_token_reached=0;
+	if ! ((is_string)); then
+		while any_toplevel_args_remaining; do
+			if [ "$(peek_toplevel_args)" == "$end_token" ]; then
+				end_token_reached=1;
+				shift_toplevel_args;
+				break;
+			fi;
+			argv+=("$(peek_toplevel_args)");
+			shift_toplevel_args;
+		done;
+	fi;
+
+	if ((is_string)); then
+		bash -c "$string_command" 0< /dev/null 3>&- |& send_to_stdout;
+	else
+		(
+			"${argv[@]}";
+		) 0< /dev/null 3>&- |& send_to_stdout;
+	fi;
+}
+
+
+command_fork() {
+	true;
+}
+
+
+main_execution_loop() {
+
+	local current_toplevel_command;
+	while any_toplevel_args_remaining; do
+		current_toplevel_command=$(peek_toplevel_args);
+
+		case "$current_toplevel_command" in
+			(command)
+				command_command;
+				;;
+			(debug)
+				shift_toplevel_args;
+				echoout "ASDF";
+				echoerr "QWER";
+				;;
+			(*)
+				false;
+				;;
+		esac;
+
+	done;
+
+}
+
+
+main() {
+	load_eof_values;
+
+	main_execution_loop;
+}
+
+main;
+exit "$?";
+
+KERNEL
+	
+}
+
+
+
+
+# THE script to be executed.
+toplevel_commands=();
+toplevel_commands_provided=0;
+
+read_toplevel_commands_from_file() {
+	local filepath=$1;
+	local current_line_number=1;
+	local output_file=$(mktemp);
+	local temp_script_path;
+	local line;
+	local word;
+	local parsed_word;
+	while IFS="" read -r line || [ -n "$line" ]; do
+		temp_script_path=$(mktemp);
+		{
+			# printf %q ensure that all arguments are only one line
+			# when printed.
+			cat <<"SCRIPT";
+				print_args() {
+					(($# > 0)) && printf %q\\n "$@";
+					exit 0;
+				}
+SCRIPT
+			printf %s\\n "print_args $line";
+		} > "$temp_script_path";
+
+		bash -s -n < "$temp_script_path" &> /dev/null || {
+			rm -f "$temp_script_path";
+			1>&2 echo "Error in file '$filepath' on line $current_line_number.";
+			exit 1;
+		};
+		bash -s < "$temp_script_path" > "$output_file";
+		rm -f "$temp_script_path";
+
+		while IFS="" read -r word || [ -n "$word" ]; do
+			parsed_word="$(
+				# subshell for safety.
+				eval "output=$word";
+				printf %s "$output";
+			)";
+			toplevel_commands+=("$parsed_word");
+		done < "$output_file";
+
+		((current_line_number++));
+	done < "$filepath";
+	rm -f "$output_file";
+	
+	toplevel_commands_provided=1;
+}
+read_toplevel_commands_from_arguments() {
+	toplevel_commands=("${arg_script[@]}");
+	toplevel_commands_provided=1;
+}
+
+
+
+
+command_check() {
+	((toplevel_commands_provided)) || {
+		1>&2 echo "You must provide a rrssh script.";
+		return 1;
+	};
+	return 0;
+}
+
+command_run() {
+	command_check || return 1;
+
+	local temp_kernel_path=$(mktemp);
+	(
+		print_kernel;
+		echo;
+		echo "###;;;";
+		
+		for toplevel_arg in "${toplevel_commands[@]}"; do
+			echo @toplevel_arg;
+			dump_bin <<<"$toplevel_arg";
+		done;
+		echo @end_of_header;
+	) > "$temp_kernel_path";
+	bash "$temp_kernel_path" -- --mode run --root 2> /dev/null | (
+		while IFS="" read -r line || [ -n "$line" ]; do
+			case "$line" in
+				(@print_stdout)
+					read_bin;
+					;;
+				(@print_stderr)
+					read_bin 1>&2;
+					;;
+				(*)
+					1>&2 echo "Unknown object in kernel output: $line";
+					;;
+			esac;
+		done;
+	);
+	rm -f "$temp_kernel_path";
+	
+}
+
+main() {
+	if (($# == 0)); then
+		echo "You must provide a command.";
+		return 1;
+	fi;
+	local cmd=$1;
+
+	if ((opt_file)); then
+		local temp_script_file_path=$(mktemp);
+		if [ "$arg_file" == "-" ]; then
+		    cat > "$temp_script_file_path";
+		else
+			cat "$arg_file" > "$temp_script_file_path";
+		fi;
+		read_toplevel_commands_from_file "$temp_script_file_path";
+		rm -f "$temp_script_file_path";
+	elif ((opt_script_provided)); then
+		read_toplevel_commands_from_arguments;
+	fi
+
+	shift;
+	case "$cmd" in
+		(print-kernel)
+			print_kernel;
+			;;
+		(run)
+			command_run;
+			;;
+		(print)
+			((toplevel_commands_provided)) || {
+				1>&2 echo "You need to provide a script";
+				return 1;
+			};
+			if ((opt_t)); then
+				echo "${#toplevel_commands[@]}";
+			else
+				local printf_arg=$(((opt_l)) && echo '%s\n' || echo '%q\n');
+				if ((opt_n)); then
+					((arg_n < ${#toplevel_commands[@]})) || {
+						1>&2 echo "The value provided to -n is larger than the number of tokens.";
+						return 1;
+					};
+					printf "$printf_arg" "${toplevel_commands[$arg_n]}";
+				else
+					printf "$printf_arg" "${toplevel_commands[@]}";
+				fi;
+			fi;
+			;;
+		(*)
+			1>&2 echo "Unknown command '$cmd'.";
+			return 1;
+			;;
+	esac;
+}
+
+
+main "$@";
+exit "$?";
+
