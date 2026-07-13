@@ -533,9 +533,16 @@ generic_message_handler() {
 # run (but always consume their arguments) if the main loop sets the
 # variable indicating to do so.
 
+# the main execution loop sets this when commands must read their
+# arguments but skip their execution.  for example when running a
+# "command chain".
+
+skip_current_command_execution_flag=0;
 
 current_command_must_run_p() {
-	true;
+	[ "$op_mode" == check ] && return 1;
+	((skip_current_command_execution_flag)) && return 1;
+	return 0;
 }
 
 command_command() {
@@ -570,6 +577,8 @@ command_command() {
 			shift_toplevel_args;
 		done;
 	fi;
+
+	current_command_must_run_p || return 0;
 
 	local rc=0;
 	if ((is_string)); then
@@ -662,31 +671,40 @@ command_fork() {
 		print_landing_script() {
 			local call_args=("$@");
 			cat <<LANDING_SCRIPT;
-rrssh_id=$(printf %q "$rrssh_id");
-rrssh_fork_depth=$(printf %q "$rrssh_fork_depth");
-rrssh_host_depth=$(printf %q "$rrssh_host_depth");
 call_args=($(printf "%q " "${call_args[@]}"));
 LANDING_SCRIPT
 
 			cat <<"LANDING_SCRIPT";
 
-kernel_file_name="rrssh_kernel_${rrssh_id}_$((rrssh_fork_depth + 1))_$((rrssh_host_depth + 1))";
+kernel_file_path=$(mktemp) || {
+	exit 1;
+};
 
-cd || exit 1;
-tee "$kernel_file_name" &> /dev/null || exit 1;
+tee "$kernel_file_path" &> /dev/null || {
+	rm -f "$kernel_file_path";
+	exit 1;
+};
 
-bash "$kernel_file_name" -- "${call_args[@]}";
-rm -f "$kernel_file_name";
+bash "$kernel_file_path" -- "${call_args[@]}";
+rm -f "$kernel_file_path";
 
 LANDING_SCRIPT
 
 		}
 
-		if ((is_host_command)); then
-
-			ssh -- "$arg_destination" "bash -c $(printf %q "$(print_landing_script --mode run)")";
-
+		cmd=();
+		if ((is_sudo_prefix)); then
+			cmd+=(sudo);
 		fi;
+		if ((is_host_command)); then
+			cmd+=(ssh -- "$arg_destination");
+		elif ((is_su_command)); then
+			cmd+=(su --login -- "$arg_username" -c);
+		elif ((is_scope_command)); then
+			cmd+=(bash -c);
+		fi;
+
+		"${cmd[@]}" "bash -c $(printf %q "$(print_landing_script --mode run)")";
 
 	) | (
 
@@ -760,34 +778,57 @@ main_execution_loop() {
 
 	local current_toplevel_command;
 	local current_command_rc=0;
+	local current_command_reverse_rc=0;
 	local current_chain_rc=0;
 	local is_first_command_of_chain=1;
+	local current_chain_has_try_prefix=0;
+	local operator_used=0;
+
+	skip_current_command_execution_flag=0;
 	while any_toplevel_args_remaining; do
-		current_toplevel_command=$(peek_toplevel_args);
 		current_command_rc=0;
+		current_command_reverse_rc=0;
+		operator_used=0;
 
 		if ((is_first_command_of_chain)); then
-			if [ "$current_toplevel_command" == "$toplevel_scope_closing_token" ]; then
+			# TODO: check whether we are not root kernel.
+			if [ "$(peek_toplevel_args)" == "$toplevel_scope_closing_token" ]; then
 				shift_toplevel_args;
 				break;
 			fi;
 		fi;
 
-		# TODO: handle prefix operators "try" "not" here
+		if ((is_first_command_of_chain)); then
+			if [ "$(peek_toplevel_args)" == try ]; then
+				current_chain_has_try_prefix=1;
+				shift_toplevel_args;
+			fi;
+		fi;
+
+		if any_toplevel_args_remaining && [ "$(peek_toplevel_args)" == not ]; then
+			current_command_reverse_rc=1;
+			shift_toplevel_args;
+		fi;
+
+		if ! any_toplevel_args_remaining; then
+			panic "An rrssh command must be provided after a prefix.";
+		fi;
+		current_toplevel_command=$(peek_toplevel_args);
 
 		case "$current_toplevel_command" in
 			(command)
 				command_command;
 				current_command_rc=$?;
 				;;
-			(host|"[")
+			(host|sudo-host|su|sudo-su|"[")
 				command_fork;
 				current_command_rc=$?;
 				;;
 			(debug)
 				shift_toplevel_args;
-				echoout "ASDF";
-				echoerr "QWER";
+				if current_command_must_run_p; then
+					echoout "ASDF";
+				fi;
 				;;
 			(*)
 				# TODO: check whether this is the token that closes
@@ -795,15 +836,35 @@ main_execution_loop() {
 
 				echocom @exitcode;
 				echocom 1;
-				panic "Unknown command: '$current_toplevel_command'.";
+				panic "Invalid rrssh command: '$current_toplevel_command'.";
 				;;
 		esac;
 		is_first_command_of_chain=0;
+		((current_command_reverse_rc)) && ((current_command_rc ^= 1));
 
 		# TODO: handle "and" "or" operators here
+		if any_toplevel_args_remaining; then
+			case "$(peek_toplevel_args)" in
+				(and)
+					operator_used=1;
+					skip_current_command_execution_flag=$current_command_rc;
+					;;
+				(or)
+					operator_used=1;
+					skip_current_command_execution_flag=$((current_command_rc ^ 1));
+					;;
+			esac;
+			if ((operator_used)); then
+				shift_toplevel_args;
+				if ! any_toplevel_args_remaining; then
+					panic "An rrssh command must be provided after an infix operator.";
+				fi;
+				continue;
+			fi;
+		fi;
 
 		# when execution reaches here, we have completed a complete "command chain"
-		if ! ((current_command_rc == 0)); then
+		if ! ((current_chain_has_try_prefix)) && ! ((current_command_rc == 0)); then
 			echocom @exitcode;
 			echocom "$current_command_rc";
 			# TODO: add command chain and line number to error message
@@ -812,6 +873,8 @@ main_execution_loop() {
 
 		# now we reset flags for the next "command chain".
 		is_first_command_of_chain=1;
+		skip_current_command_execution_flag=0;
+		current_chain_has_try_prefix=0;
 
 	done;
 
@@ -920,7 +983,7 @@ command_run() {
 		done;
 
 		echo @rrssh_id;
-		tr -dc 0123456789abcdefghijklmnopqrstuvwxyz < /dev/urandom | head -c 20 | dump_bin;
+		tr -dc 0123456789abcdefghijklmnopqrstuvwxyz < /dev/urandom | head -c 10 | dump_bin;
 		echo @rrssh_fork_depth;
 		dump_bin <<<"0";
 		echo @rrssh_host_depth;
