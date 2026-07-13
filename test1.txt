@@ -1,0 +1,23 @@
+
+command [ echo start ]
+host localhost [
+	command [ echo jump1 ]
+	host localhost [
+		command [ echo jump2 ]
+		host localhost [
+			command [ echo jump3 ]
+			host localhost [
+				command [ echo jump4 ]
+				host localhost [
+					command [ echo jump5 ]
+					command [ false ]
+					host localhost [
+						command [ echo jump6 ]
+					]
+				]
+			]
+		]
+	]
+]
+
+

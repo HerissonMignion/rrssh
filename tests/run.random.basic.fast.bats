@@ -65,7 +65,11 @@ SCRIPT
 }
 
 
-
+@test "basic execution is stopped at the first non-0 exit code" {
+	run rrssh run --- command [ exit 1 ];
+	assert_failure;
+	
+}
 
 
 

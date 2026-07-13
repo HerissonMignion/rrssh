@@ -116,9 +116,7 @@ COMMANDS
 	In the following, square brackets [ ] may indicate optionnal
 	arguments or literal arguments to be provided to rrssh.
 
-	host <destination> : <commands>...
 	host <destination> [ <commands>... ]
-	sudo-host <destination> : <commands>...
 	sudo-host <destination> [ <commands>... ]
 
 		These commands are the main purpose of using rrssh.
@@ -264,6 +262,9 @@ read_line() {
 	read -r line;
 	printf %s "$line";
 }
+read_line_ln() {
+	printf '%s\n' "$(read_line)";
+}
 read_bin() {
 	local first_line=$(read_line);
 	[ "$first_line" == @binary_object ] || return 1;
@@ -294,6 +295,7 @@ KERNEL
 
 	declare -f dump_bin;
 	declare -f read_line;
+	declare -f read_line_ln;
 	declare -f read_bin;
 	declare -f print_kernel;
 
@@ -328,8 +330,16 @@ printferr() {
 }
 
 
+# do not call panic from inside a subshell
+panic() {
+	printferr 'PANIC: %s PANIC\n' "$@";
+	echocom @panic;
+	exit 1;
+}
 
-
+error() {
+	printferr 'ERROR: %s ERROR\n' "$@";
+}
 
 
 
@@ -353,15 +363,18 @@ printferr() {
 # the need to skip large files/folders and thus speed up a little bit.
 
 
+
+rrssh_id=""; # unique id for the whole runtime
+rrssh_fork_depth=0;
+rrssh_host_depth=0;
+
+
+
 # operation mode
 op_mode=""; # enum of: run scan
 
 # are we the first kernel?  therefore we dont have a parent scope.
 is_root_kernel=0;
-
-# if we are not the root kernel, then this is the token that's gonna
-# close our scope.
-toplevel_scope_closing_token="";
 
 # are we suposed to run only one command chain?
 is_one_command_chain_limit=0;
@@ -380,10 +393,6 @@ while (($#)); do
 		(--root)
 			is_root_kernel=1;
 			;;
-		(--toplevel-scope-closing-token)
-			toplevel_scope_closing_token=$1
-			shift;
-			;;
 		(--one-command-chain-limit)
 			is_one_command_chain_limit=1;
 			;;
@@ -393,14 +402,20 @@ unset arg;
 
 
 
+# if we are not the root kernel, then this is the token that's gonna
+# close our scope.
+toplevel_scope_closing_token="";
+
 
 toplevel_args=();
+total_toplevel_args_shift_count=0;
 
 shift_toplevel_args() {
 	local shift_count=${1:-1};
 	set -- "${toplevel_args[@]}";
 	shift "$shift_count";
 	toplevel_args=("$@");
+	((total_toplevel_args_shift_count += shift_count));
 }
 peek_toplevel_args() {
 	printf %s "${toplevel_args[0]}";
@@ -410,6 +425,7 @@ any_toplevel_args_remaining() {
 }
 
 skip_kernel() {
+	local line;
 	while IFS="" read -r line || [ -n "$line" ]; do
 		[ "$line" == "###;;;" ] && break;
 	done;
@@ -426,6 +442,21 @@ load_eof_values() {
 				(@toplevel_arg)
 					toplevel_args+=("$(read_bin)");
 					;;
+				(@toplevel_scope_closing_token)
+					toplevel_scope_closing_token=$(read_bin);
+					;;
+				(@rrssh_id)
+					rrssh_id=$(read_bin);
+					;;
+				(@rrssh_fork_depth)
+					rrssh_fork_depth=$(read_bin);
+					;;
+				(@rrssh_host_depth)
+					rrssh_host_depth=$(read_bin);
+					;;
+				(*)
+					panic "Unknown object in kernel dump: '$object_type'.";
+					;;
 			esac;
 		done;
 	} < "$KERNEL_PATH";
@@ -441,6 +472,54 @@ begin_basic_fork() {
 	print_kernel;
 	echo;
 	echo '###;;;';
+
+	local token;
+	for token in "${toplevel_args[@]}"; do
+		echo @toplevel_arg;
+		dump_bin <<<"$token";
+	done;
+
+	echo @rrssh_id;
+	dump_bin <<<"$rrssh_id";
+	echo @rrssh_fork_depth;
+	dump_bin <<<$((rrssh_fork_depth + 1));
+
+}
+
+generic_message_handler() {
+	# we cannot handle panic because we will always be inside a
+	# subshell.  therefore we must forward the panic, which is also
+	# our own panic mecanism for unknown message type.
+
+	local line;
+	while IFS="" read -r line || [ -n "$line" ]; do
+		case "$line" in
+			(@print_stdout)
+				read_bin | send_to_stdout;
+				;;
+			(@print_stderr)
+				read_bin | send_to_stderr;
+				;;
+			(@panic)
+				echo @panic;
+				;;
+			(@bliss)
+				echo @bliss;
+				;;
+			(@exitcode)
+				echocom @exitcode;
+				echocom "$(read_line)";
+				;;
+			(@total_toplevel_shift)
+				echo @total_toplevel_shift;
+				echo "$(read_line)";
+				;;
+			(*)
+				error "generic_message_handler: Unknown message '$line'.  Panic.";
+				echo @panic;
+				;;
+		esac;
+	done;
 }
 
 
@@ -450,7 +529,14 @@ begin_basic_fork() {
 # only they know how much arguments they consume.  They must respect
 # the value of op_mode.  They can panic.  They must use their
 # exit-code to indicate whether they must be considered successful or
-# in error in regards to the operators and or not try.
+# in error in regards to the operators and or not try.  They must only
+# run (but always consume their arguments) if the main loop sets the
+# variable indicating to do so.
+
+
+current_command_must_run_p() {
+	true;
+}
 
 command_command() {
 	shift_toplevel_args;
@@ -466,11 +552,11 @@ command_command() {
 			end_token="---";
 			is_string=0;
 			;;
-		('[')
+		("[")
 			end_token="]";
 			is_string=0;
 			;;
-	esac; # ) this fixes emacs electric pair.
+	esac;
 
 	local end_token_reached=0;
 	if ! ((is_string)); then
@@ -485,30 +571,218 @@ command_command() {
 		done;
 	fi;
 
+	local rc=0;
 	if ((is_string)); then
 		bash -c "$string_command" 0< /dev/null 3>&- |& send_to_stdout;
+		rc=${PIPESTATUS[0]};
 	else
 		(
 			"${argv[@]}";
+			exit "$?";
 		) 0< /dev/null 3>&- |& send_to_stdout;
+		rc=${PIPESTATUS[0]};
 	fi;
+	wait;
+
+	return "$rc";
 }
 
 
 command_fork() {
-	true;
+	local command_name=$(peek_toplevel_args);
+	shift_toplevel_args;
+
+	# TODO: if forking locally, then dont reprint all files, put a
+	# reference to the first kernel on the current host.
+
+	local is_host_command=0;
+	local is_su_command=0;
+	local is_scope_command=0;
+	local is_sudo_prefix=0;
+
+	case "$command_name" in
+		(host)
+			is_host_command=1;
+			;;
+		(sudo-host)
+			is_host_command=1;
+			is_sudo_prefix=1;
+			;;
+		(su)
+			is_su_command=1;
+			;;
+		(sudo-su)
+			is_su_command=1;
+			is_sudo_prefix=1;
+			;;
+		("[")
+			is_scope_command=1;
+			;;
+	esac;
+
+	local arg_destination; # host commands
+	local arg_username; # su commands
+	if ! ((is_scope_command)); then
+		arg_destination=$(peek_toplevel_args);
+		arg_username=$(peek_toplevel_args);
+		shift_toplevel_args;
+		if ! [ "$(peek_toplevel_args)" == "[" ]; then
+			panic "The '$command_name' command must begin with an opening '['";
+		fi;
+	    shift_toplevel_args;
+	fi;
+
+	# at this point, the opening square bracket is consumed, the next
+	# toplevel arg is the first token inside the scope.  the closing
+	# square bracket will come later and be consumed by the sub
+	# kernel.
+
+	# TODO: do pre-execution syntax analysis here.
+
+
+	local temp_com_file=$(mktemp);
+	(
+		begin_basic_fork;
+
+
+
+		echo @toplevel_scope_closing_token;
+		dump_bin <<<"]";
+
+		echo @rrssh_host_depth;
+		dump_bin <<<$((rrssh_host_depth + 1));
+
+		echo @end_of_header;
+
+		# TODO: append files and folders only if we are a host
+		# command.
+
+	) | (
+
+		print_landing_script() {
+			local call_args=("$@");
+			cat <<LANDING_SCRIPT;
+rrssh_id=$(printf %q "$rrssh_id");
+rrssh_fork_depth=$(printf %q "$rrssh_fork_depth");
+rrssh_host_depth=$(printf %q "$rrssh_host_depth");
+call_args=($(printf "%q " "${call_args[@]}"));
+LANDING_SCRIPT
+
+			cat <<"LANDING_SCRIPT";
+
+kernel_file_name="rrssh_kernel_${rrssh_id}_$((rrssh_fork_depth + 1))_$((rrssh_host_depth + 1))";
+
+cd || exit 1;
+tee "$kernel_file_name" &> /dev/null || exit 1;
+
+bash "$kernel_file_name" -- "${call_args[@]}";
+rm -f "$kernel_file_name";
+
+LANDING_SCRIPT
+
+		}
+
+		if ((is_host_command)); then
+
+			ssh -- "$arg_destination" "bash -c $(printf %q "$(print_landing_script --mode run)")";
+
+		fi;
+
+	) | (
+
+		generic_message_handler;
+
+	) | (
+
+		# we handle file/folder transfers and other things here so
+		# that it happens simultaneously accross all hosts, and thus
+		# faster than one host at a time.  however we are in a
+		# subshell.  temp_com_file is for information that must be
+		# kept outside the subshell.
+
+		while IFS="" read -r line || [ -n "$line" ]; do
+			case "$line" in
+				(@panic)
+					echo @panic;
+					;;
+				(@bliss)
+					echo @bliss;
+					;;
+				(@total_toplevel_shift)
+					echo @total_toplevel_shift;
+					read_line_ln;
+					;;
+				(*)
+					error "Unknown message received from sub kernel: '$line'. PANIC";
+					echo @panic;
+					break;
+					;;
+			esac;
+		done;
+
+	) > "$temp_com_file";
+
+	local bliss_received=0;
+	local must_panic=0;
+	while IFS="" read -r line || [ -n "$line" ]; do
+		case "$line" in
+			(@panic)
+				must_panic=1;
+				break;
+				;;
+			(@bliss)
+				bliss_received=1;
+				;;
+			(@total_toplevel_shift)
+				shift_toplevel_args "$(read_line)";
+				;;
+			(*)
+				error "Unknown message received from sub kernel parsing code: '$line'.";
+				must_panic=1;
+				break;
+				;;
+		esac;
+	done < "$temp_com_file";
+	rm -f "$temp_com_file";
+
+	if ((must_panic)); then
+		panic "Triggering a panic.";
+	fi;
+
+	if ! ((bliss_received)); then
+		panic "Sub kernel at remote host did not end blissfully.";
+	fi;
+
 }
 
 
 main_execution_loop() {
 
 	local current_toplevel_command;
+	local current_command_rc=0;
+	local current_chain_rc=0;
+	local is_first_command_of_chain=1;
 	while any_toplevel_args_remaining; do
 		current_toplevel_command=$(peek_toplevel_args);
+		current_command_rc=0;
+
+		if ((is_first_command_of_chain)); then
+			if [ "$current_toplevel_command" == "$toplevel_scope_closing_token" ]; then
+				shift_toplevel_args;
+				break;
+			fi;
+		fi;
+
+		# TODO: handle prefix operators "try" "not" here
 
 		case "$current_toplevel_command" in
 			(command)
 				command_command;
+				current_command_rc=$?;
+				;;
+			(host|"[")
+				command_fork;
+				current_command_rc=$?;
 				;;
 			(debug)
 				shift_toplevel_args;
@@ -516,9 +790,28 @@ main_execution_loop() {
 				echoerr "QWER";
 				;;
 			(*)
-				false;
+				# TODO: check whether this is the token that closes
+				# our current scope.
+
+				echocom @exitcode;
+				echocom 1;
+				panic "Unknown command: '$current_toplevel_command'.";
 				;;
 		esac;
+		is_first_command_of_chain=0;
+
+		# TODO: handle "and" "or" operators here
+
+		# when execution reaches here, we have completed a complete "command chain"
+		if ! ((current_command_rc == 0)); then
+			echocom @exitcode;
+			echocom "$current_command_rc";
+			# TODO: add command chain and line number to error message
+			panic "The command chain exited non-0.";
+		fi;
+
+		# now we reset flags for the next "command chain".
+		is_first_command_of_chain=1;
 
 	done;
 
@@ -529,6 +822,12 @@ main() {
 	load_eof_values;
 
 	main_execution_loop;
+
+	if ! ((is_root_kernel)); then
+		echocom @total_toplevel_shift;
+		echocom "$total_toplevel_args_shift_count";
+	fi;
+	echocom @bliss;
 }
 
 main;
@@ -619,8 +918,17 @@ command_run() {
 			echo @toplevel_arg;
 			dump_bin <<<"$toplevel_arg";
 		done;
+
+		echo @rrssh_id;
+		tr -dc 0123456789abcdefghijklmnopqrstuvwxyz < /dev/urandom | head -c 20 | dump_bin;
+		echo @rrssh_fork_depth;
+		dump_bin <<<"0";
+		echo @rrssh_host_depth;
+		dump_bin <<<"0";
+		
 		echo @end_of_header;
 	) > "$temp_kernel_path";
+	local temp_com_file=$(mktemp);
 	bash "$temp_kernel_path" -- --mode run --root 2> /dev/null | (
 		while IFS="" read -r line || [ -n "$line" ]; do
 			case "$line" in
@@ -630,14 +938,58 @@ command_run() {
 				(@print_stderr)
 					read_bin 1>&2;
 					;;
+				(@bliss)
+					echo @bliss >> "$temp_com_file";
+					;;
+				(@exitcode)
+					echo @exitcode >> "$temp_com_file";
+					read_line_ln >> "$temp_com_file";
+					;;
+				(@panic)
+					echo @panic >> "$temp_com_file";
+					;;
 				(*)
 					1>&2 echo "Unknown object in kernel output: $line";
+					# MAYBE TODO: throw a real error?
 					;;
 			esac;
 		done;
 	);
 	rm -f "$temp_kernel_path";
-	
+
+	local exitcode_received=0;
+	local exitcode=0;
+	local panic_received=0;
+	local bliss_received=0;
+	while IFS="" read -r line || [ -n "$line" ]; do
+		case "$line" in
+			(@exitcode)
+				exitcode_received=1;
+				exitcode=$(read_line);
+				# read_line;
+				;;
+			(@bliss)
+				bliss_received=1;
+				;;
+			(@panic)
+				panic_received=1;
+				;;
+		esac;
+	done < "$temp_com_file";
+	rm -f "$temp_com_file";
+
+	if ((panic_received)); then
+		if ((exitcode_received)); then
+			return "$exitcode";
+		else
+			return 1;
+		fi;
+	fi;
+
+	if ! ((bliss_received)); then
+		1>&2 echo "PROBLEM: The root subkernel did not end blissfully";
+		return 1;
+	fi;
 }
 
 main() {
@@ -652,7 +1004,7 @@ main() {
 		if [ "$arg_file" == "-" ]; then
 		    cat > "$temp_script_file_path";
 		else
-			cat "$arg_file" > "$temp_script_file_path";
+			cat -- "$arg_file" > "$temp_script_file_path";
 		fi;
 		read_toplevel_commands_from_file "$temp_script_file_path";
 		rm -f "$temp_script_file_path";
