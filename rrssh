@@ -540,7 +540,7 @@ generic_message_handler() {
 skip_current_command_execution_flag=0;
 
 current_command_must_run_p() {
-	[ "$op_mode" == check ] && return 1;
+	[ "$op_mode" == scan ] && return 1;
 	((skip_current_command_execution_flag)) && return 1;
 	return 0;
 }
@@ -646,7 +646,56 @@ command_fork() {
 	# square bracket will come later and be consumed by the sub
 	# kernel.
 
-	# TODO: do pre-execution syntax analysis here.
+	# pre-execution analysis
+	local total_shift_needed=0;
+	local total_shift_needed_provided=0;
+	local sub_analyser_bliss=0;
+
+
+	local sub_analyser_kernel_path=$(mktemp);
+	local analysis_output=$(mktemp);
+	(
+		begin_basic_fork;
+
+		echo @toplevel_scope_closing_token;
+		dump_bin <<<"]";
+
+		echo @rrssh_host_depth;
+		dump_bin <<<$((rrssh_host_depth + 1));
+
+		echo @end_of_header;
+	) > "$sub_analyser_kernel_path";
+	bash "$sub_analyser_kernel_path" -- --mode scan | generic_message_handler > "$analysis_output";
+	rm -f "$sub_analyser_kernel_path";
+	local line;
+	while IFS="" read -r line || [ -n "$line" ]; do
+		case "$line" in
+			(@total_toplevel_shift)
+				total_shift_needed_provided=1;
+				total_shift_needed=$(read_line);
+				;;
+			(@bliss)
+				sub_analyser_bliss=1;
+				;;
+			(@panic)
+				rm -f "$analysis_output";
+				panic "Sub kernel panicked during analysis.";
+				;;
+			(*)
+				rm -f "$analysis_output";
+				panic "Unknown message in scope analysis: '$line'.";
+				;;
+		esac;
+	done < "$analysis_output";
+	rm -f "$analysis_output";
+	((sub_analyser_bliss)) ||
+		panic "Sub scope analyser did not end blissfully.";
+
+	current_command_must_run_p || {
+	    shift_toplevel_args "$total_shift_needed";
+		return 0;
+	};
+
 
 
 	local temp_com_file=$(mktemp);
@@ -675,6 +724,8 @@ call_args=($(printf "%q " "${call_args[@]}"));
 LANDING_SCRIPT
 
 			cat <<"LANDING_SCRIPT";
+
+# TODO: print a "landed" message.
 
 kernel_file_path=$(mktemp) || {
 	exit 1;
@@ -742,6 +793,7 @@ LANDING_SCRIPT
 
 	local bliss_received=0;
 	local must_panic=0;
+	local execution_total_shift_needed=0;
 	while IFS="" read -r line || [ -n "$line" ]; do
 		case "$line" in
 			(@panic)
@@ -752,7 +804,10 @@ LANDING_SCRIPT
 				bliss_received=1;
 				;;
 			(@total_toplevel_shift)
-				shift_toplevel_args "$(read_line)";
+				execution_total_shift_needed=$(read_line);
+				[ "$execution_total_shift_needed" == "$total_shift_needed" ] ||
+					panic "The amount of token consumed during scope analysis is not equal as when executed.";
+					shift_toplevel_args "$total_shift_needed";
 				;;
 			(*)
 				error "Unknown message received from sub kernel parsing code: '$line'.";
