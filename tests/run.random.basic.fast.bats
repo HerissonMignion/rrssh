@@ -77,9 +77,46 @@ SCRIPT
 	assert_output --partial asdf;
 	refute_output --partial qwer;
 	assert_failure;
+
+	run rrssh run --- command [ echo asdf ] command "false" command [ echo qwer ];
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	assert_failure;
+
+	run rrssh run --- command [ echo asdf ] command "true; false" command [ echo qwer ];
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	assert_failure;
+
+	run rrssh run --- command [ echo asdf ] --- false --- command [ echo qwer ];
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	assert_failure;
 	
 }
 
+@test "basic 'command' command syntax" {
+	run rrssh run --- --- echo asdf ---;
+	assert_success;
+	assert_output asdf;
+	
+	run rrssh run --- command [ echo asdf ];
+	assert_success;
+	assert_output asdf;
+	
+	run rrssh run --- command "echo asdf";
+	assert_success;
+	assert_output asdf;
+
+	run rrssh run --- --- echo asdf;
+	assert_failure;
+	refute_output --partial asdf;
+
+	run rrssh run --- command "[" echo asdff;
+	assert_failure;
+	refute_output --partial asdf;
+	
+}
 
 @test "basic operator 'not' control flow" {
 	run rrssh run --- not command [ true ];

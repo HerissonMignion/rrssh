@@ -24,7 +24,7 @@ NAME
 
 SYNOPSIS
 
-	rrssh [<options>...] <main-command> [--- <commands>...]
+	rrssh [<options>...] <main-command> [--- <rrssh commands>...]
 
 DESCRIPTION
 
@@ -98,6 +98,12 @@ OPTIONS
 		Provide a file of commands to execute instead of reading from
 		the arguments.  If file is "-", then read from stdin.
 
+	-p
+
+		Any command chain that does not exit with 0 will make rrssh
+		panic.  Default behavior is to only make the parent scope exit
+		non-0.
+
 	-n <index>
 
 		Read the description of the command "print".
@@ -137,6 +143,11 @@ COMMANDS
 	--- <argv>... ---
 
 		TODO
+
+	true
+	false
+
+		Do nothing, with success or failure.
 
 	for <variable> in <values>... [ <commands>... ]
 	for <variable> <delim> <values>... <delim> <command>
@@ -190,6 +201,7 @@ arg_n="";
 
 opt_l=0;
 opt_t=0;
+opt_p=0;
 
 opt_script_provided=0;
 arg_script=();
@@ -228,6 +240,9 @@ while (($#)); do
 			;;
 		(-t)
 			opt_t=1;
+			;;
+		(-p)
+			opt_p=1;
 			;;
 		(*)
 			trailing_args+=("$arg");
@@ -410,6 +425,8 @@ toplevel_scope_closing_token="";
 toplevel_args=();
 total_toplevel_args_shift_count=0;
 
+opt_p=0;
+
 shift_toplevel_args() {
 	local shift_count=${1:-1};
 	set -- "${toplevel_args[@]}";
@@ -454,6 +471,9 @@ load_eof_values() {
 				(@rrssh_host_depth)
 					rrssh_host_depth=$(read_bin);
 					;;
+				(@opt_p)
+					opt_p=1;
+					;;
 				(*)
 					panic "Unknown object in kernel dump: '$object_type'.";
 					;;
@@ -478,6 +498,8 @@ begin_basic_fork() {
 		echo @toplevel_arg;
 		dump_bin <<<"$token";
 	done;
+
+	((opt_p)) && echo @opt_p;
 
 	echo @rrssh_id;
 	dump_bin <<<"$rrssh_id";
@@ -509,6 +531,10 @@ generic_message_handler() {
 			(@exitcode)
 				echocom @exitcode;
 				echocom "$(read_line)";
+				;;
+			(@scope_exitcode)
+				echo @scope_exitcode;
+				echo "$(read_line)";
 				;;
 			(@total_toplevel_shift)
 				echo @total_toplevel_shift;
@@ -546,25 +572,28 @@ current_command_must_run_p() {
 }
 
 command_command() {
+	local arg0=$(peek_toplevel_args);
 	shift_toplevel_args;
 
-	local first_arg=$(peek_toplevel_args);
-	local string_command=$first_arg;
-	shift_toplevel_args;
-	local argv=();
+	local arg1=$(peek_toplevel_args);
+	local string_command="";
 	local is_string=1;
+	local argv=();
 	local end_token="";
-	case "$first_arg" in
-		(---)
-			end_token="---";
-			is_string=0;
-			;;
-		("[")
-			end_token="]";
-			is_string=0;
-			;;
-	esac;
 
+	if [ "$arg0" == --- ]; then
+		is_string=0;
+		end_token="---";
+	else
+		shift_toplevel_args;
+		if [ "$arg1" == "[" ]; then
+			is_string=0;
+			end_token="]";
+		else
+			string_command=$arg1;
+		fi;
+	fi;
+	
 	local end_token_reached=0;
 	if ! ((is_string)); then
 		while any_toplevel_args_remaining; do
@@ -576,6 +605,10 @@ command_command() {
 			argv+=("$(peek_toplevel_args)");
 			shift_toplevel_args;
 		done;
+
+		((end_token_reached)) || {
+			panic "The command 'command' must end with the corresponding ending token: '$end_token'.";
+		};
 	fi;
 
 	current_command_must_run_p || return 0;
@@ -647,8 +680,8 @@ command_fork() {
 	# kernel.
 
 	# pre-execution analysis
-	local total_shift_needed=0;
-	local total_shift_needed_provided=0;
+	local total_scope_args_shift=0;
+	local total_scope_args_shift_provided=0;
 	local sub_analyser_bliss=0;
 
 
@@ -671,8 +704,8 @@ command_fork() {
 	while IFS="" read -r line || [ -n "$line" ]; do
 		case "$line" in
 			(@total_toplevel_shift)
-				total_shift_needed_provided=1;
-				total_shift_needed=$(read_line);
+				total_scope_args_shift_provided=1;
+				total_scope_args_shift=$(read_line);
 				;;
 			(@bliss)
 				sub_analyser_bliss=1;
@@ -692,7 +725,7 @@ command_fork() {
 		panic "Sub scope analyser did not end blissfully.";
 
 	current_command_must_run_p || {
-	    shift_toplevel_args "$total_shift_needed";
+	    shift_toplevel_args "$total_scope_args_shift";
 		return 0;
 	};
 
@@ -781,6 +814,10 @@ LANDING_SCRIPT
 					echo @total_toplevel_shift;
 					read_line_ln;
 					;;
+				(@scope_exitcode)
+					echo @scope_exitcode;
+					read_line_ln;
+					;;
 				(*)
 					error "Unknown message received from sub kernel: '$line'. PANIC";
 					echo @panic;
@@ -793,7 +830,9 @@ LANDING_SCRIPT
 
 	local bliss_received=0;
 	local must_panic=0;
-	local execution_total_shift_needed=0;
+	local execution_total_args_shift=0;
+	local scope_exitcode_received=0;
+	local scope_exitcode=0;
 	while IFS="" read -r line || [ -n "$line" ]; do
 		case "$line" in
 			(@panic)
@@ -804,10 +843,11 @@ LANDING_SCRIPT
 				bliss_received=1;
 				;;
 			(@total_toplevel_shift)
-				execution_total_shift_needed=$(read_line);
-				[ "$execution_total_shift_needed" == "$total_shift_needed" ] ||
-					panic "The amount of token consumed during scope analysis is not equal as when executed.";
-					shift_toplevel_args "$total_shift_needed";
+				execution_total_args_shift=$(read_line);
+				;;
+			(@scope_exitcode)
+				scope_exitcode_received=1;
+				scope_exitcode=$(read_line);
 				;;
 			(*)
 				error "Unknown message received from sub kernel parsing code: '$line'.";
@@ -822,8 +862,24 @@ LANDING_SCRIPT
 		panic "Triggering a panic.";
 	fi;
 
+	[ "$execution_total_args_shift" == "$total_scope_args_shift" ] || {
+
+		# if the sub scope did not end because of a non-0 command, it
+		# is normal that execution did not consume as many arguments
+		# as pre-execution analysis.
+
+		if ((scope_exitcode == 0)); then
+			panic "The amount of token consumed during scope analysis is not equal as when executed.  scan: $total_scope_args_shift. execution: $execution_total_args_shift";
+		fi;
+	};
+	shift_toplevel_args "$total_scope_args_shift";
+
 	if ! ((bliss_received)); then
 		panic "Sub kernel at remote host did not end blissfully.";
+	fi;
+
+	if ((scope_exitcode_received)); then
+		return "$scope_exitcode";
 	fi;
 
 }
@@ -871,13 +927,21 @@ main_execution_loop() {
 		current_toplevel_command=$(peek_toplevel_args);
 
 		case "$current_toplevel_command" in
-			(command)
+			(command|---)
 				command_command;
 				current_command_rc=$?;
 				;;
 			(host|sudo-host|su|sudo-su|"[")
 				command_fork;
 				current_command_rc=$?;
+				;;
+			(true)
+				shift_toplevel_args;
+				current_command_rc=0;
+				;;
+			(false)
+				shift_toplevel_args;
+				current_command_rc=1;
 				;;
 			(debug)
 				shift_toplevel_args;
@@ -897,16 +961,21 @@ main_execution_loop() {
 		is_first_command_of_chain=0;
 		((current_command_reverse_rc)) && ((current_command_rc ^= 1));
 
-		# TODO: handle "and" "or" operators here
+		# if the command had to run, its return code is now the
+		# current return code of the command chain.
+		if current_command_must_run_p; then
+			current_chain_rc=$current_command_rc;
+		fi;
+
 		if any_toplevel_args_remaining; then
 			case "$(peek_toplevel_args)" in
 				(and)
 					operator_used=1;
-					skip_current_command_execution_flag=$current_command_rc;
+					skip_current_command_execution_flag=$current_chain_rc;
 					;;
 				(or)
 					operator_used=1;
-					skip_current_command_execution_flag=$((current_command_rc ^ 1));
+					skip_current_command_execution_flag=$((current_chain_rc ^ 1));
 					;;
 			esac;
 			if ((operator_used)); then
@@ -919,17 +988,24 @@ main_execution_loop() {
 		fi;
 
 		# when execution reaches here, we have completed a complete "command chain"
-		if ! ((current_chain_has_try_prefix)) && ! ((current_command_rc == 0)); then
-			echocom @exitcode;
-			echocom "$current_command_rc";
-			# TODO: add command chain and line number to error message
-			panic "The command chain exited non-0.";
+		if ! ((current_chain_has_try_prefix)) && ! ((current_chain_rc == 0)); then
+			if ((opt_p)) || ((is_root_kernel)); then
+				echocom @exitcode;
+				echocom "$current_chain_rc";
+				# TODO: add command chain and line number to error message
+				panic "The command chain exited non-0.";
+			else
+				echocom @scope_exitcode;
+				echocom "$current_chain_rc";
+				break;
+			fi;
 		fi;
 
 		# now we reset flags for the next "command chain".
 		is_first_command_of_chain=1;
 		skip_current_command_execution_flag=0;
 		current_chain_has_try_prefix=0;
+		current_chain_rc=0;
 
 	done;
 
@@ -1036,6 +1112,8 @@ command_run() {
 			echo @toplevel_arg;
 			dump_bin <<<"$toplevel_arg";
 		done;
+
+		((opt_p)) && echo @opt_p;
 
 		echo @rrssh_id;
 		tr -dc 0123456789abcdefghijklmnopqrstuvwxyz < /dev/urandom | head -c 10 | dump_bin;

@@ -1,5 +1,8 @@
 
 
+I run all these tests by cd-ing in this directory and running:
+../with-path.sh bats *.bats
+
 
 On my distro (ubuntu), i need the packages "bats" and "bats-assert". i
 also installed "bats-support" in case it's somewhat usefull, i dont
@@ -36,7 +39,7 @@ assert_success
 assert_failure
 assert_failure 7
 assert_output --partial something
-refure_output --partial somethin
+refure_output --partial something
 
 
 
