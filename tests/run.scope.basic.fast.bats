@@ -20,6 +20,9 @@ teardown() {
 
 	run rrssh run --- host localhost [ ];
 	assert_success;
+
+	run rrssh run --fake-su --- su charles [ ];
+	assert_success;
 }
 
 # TODO: exit code

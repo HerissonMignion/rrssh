@@ -368,6 +368,11 @@ error() {
 	printferr 'ERROR: %s ERROR\n' "$@";
 }
 
+debug() {
+	true || return 0;
+	printferr 'DEBUG: %s DEBUG\n' "$@";
+}
+
 
 
 
@@ -548,7 +553,6 @@ generic_message_handler() {
 				;;
 			(@bliss)
 				echo @bliss;
-				break;
 				;;
 			(@@exitcode)
 				echocom @@exitcode;
@@ -557,6 +561,9 @@ generic_message_handler() {
 			(@@*)
 				echo "$line";
 				read_bin | dump_bin;
+				;;
+			(@*)
+				echo "$line";
 				;;
 			(*)
 				error "generic_message_handler: Unknown message '$line'.  Panic.";
@@ -778,12 +785,29 @@ command_fork() {
 
 			local call_args=("$@");
 			cat <<LANDING_SCRIPT;
+echo @landing_start;
+
 call_args=($(printf "%q " "${call_args[@]}"));
 LANDING_SCRIPT
 
+			declare -f dump_bin;
+
 			cat <<"LANDING_SCRIPT";
 
-# TODO: print a "landed" message.
+send_to_stderr() {
+	echo @@print_stderr;
+	dump_bin;
+}
+printferr() {
+	printf "$@" | send_to_stderr;
+}
+error() {
+	printferr "ERROR: %s ERROR\n" "$@";
+}
+debug() {
+	printferr "DEBUG: %s DEBUG\n" "$@";
+}
+
 
 kernel_file_path=$(mktemp) || {
 	exit 1;
@@ -819,9 +843,10 @@ LANDING_SCRIPT
 		fi;
 
 		"${cmd[@]}" "bash -c $(printf %q "$(print_landing_script --mode run)")";
+		fork_command_rc=$?;
 
-		# TODO: handle here whether to panic because of a failed
-		# landing or behave like a normal inner scope error.
+		echo @@fork_command_rc;
+		dump_bin <<<"$fork_command_rc";
 
 	) | (
 
@@ -842,11 +867,14 @@ LANDING_SCRIPT
 					;;
 				(@bliss)
 					echo @bliss;
-					break;
+					# break; # we need to receive fork_command_rc
 					;;
 				(@@*)
 					echo "$line";
 					read_bin | dump_bin;
+					;;
+				(@*)
+					echo "$line";
 					;;
 				(*)
 					error "Unknown message received from sub kernel: '$line'. PANIC";
@@ -863,6 +891,9 @@ LANDING_SCRIPT
 	local execution_total_args_shift=0;
 	local scope_exitcode_received=0;
 	local scope_exitcode=0;
+	local fork_command_rc_received=0;
+	local fork_command_rc=0;
+	local landing_start_received=0;
 	while IFS="" read -r line || [ -n "$line" ]; do
 		case "$line" in
 			(@panic)
@@ -871,7 +902,7 @@ LANDING_SCRIPT
 				;;
 			(@bliss)
 				bliss_received=1;
-				break;
+				# break; # we need to receive fork_command_rc
 				;;
 			(@@total_toplevel_shift)
 				execution_total_args_shift=$(read_bin);
@@ -879,6 +910,13 @@ LANDING_SCRIPT
 			(@@scope_exitcode)
 				scope_exitcode_received=1;
 				scope_exitcode=$(read_bin);
+				;;
+			(@@fork_command_rc)
+				fork_command_rc_received=1;
+				fork_command_rc=$(read_bin);
+				;;
+			(@landing_start)
+				landing_start_received=1;
 				;;
 			(*)
 				error "Unknown message received from sub kernel parsing code: '$line'.";
@@ -891,6 +929,23 @@ LANDING_SCRIPT
 
 	if ((must_panic)); then
 		panic "Triggering a panic.";
+	fi;
+
+	if ((fork_command_rc_received)) && ! ((fork_command_rc == 0)); then
+
+		# whether we received @landing_start is the difference between
+		# a failing ssh/su VS the landing script that exited non-0
+		# voluntarily.
+
+		if ((landing_start_received)); then
+			panic "The ssh or su command seems to succeed, but the sub-kernel could not be started.";
+		else
+			panic "The ssh or su command seems to fail." \
+				"Is an ssh key missing?" \
+				"Is ssh, su, or sudo prompting for a password?" \
+				"Is the destination resolving and reachable?" \
+				"Is there any spelling misatke?";
+		fi;
 	fi;
 
 	[ "$execution_total_args_shift" == "$total_scope_args_shift" ] || {
