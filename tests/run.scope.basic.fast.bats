@@ -1,4 +1,4 @@
-
+#!/bin/bash
 
 
 setup() {
@@ -22,5 +22,5 @@ teardown() {
 	assert_success;
 }
 
-
+# TODO: exit code
 

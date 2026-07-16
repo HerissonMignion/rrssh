@@ -112,10 +112,18 @@ OPTIONS
 
 		Read the description of the command "print".
 
+OPTIONS USED BY RRSSH'S TEST SUITE
+
 	--make-command-fail <id>
 
 		Do not use this.  This is intended for the test suite.  Makes
 		a command fail to validate the behavior of the error paths.
+
+	--fake-su
+
+		Do not use this.  This is intended for the test suite.  Make
+		the su commands not really attempt to switch user to prevent
+		passwords from breaking the test suite.
 
 COMMANDS
 
@@ -202,6 +210,7 @@ arg_n="";
 opt_l=0;
 opt_t=0;
 opt_p=0;
+opt_fake_su=0;
 
 opt_script_provided=0;
 arg_script=();
@@ -244,6 +253,9 @@ while (($#)); do
 		(-p)
 			opt_p=1;
 			;;
+		(--fake-su)
+			opt_fake_su=1;
+			;;
 		(*)
 			trailing_args+=("$arg");
 			;;
@@ -265,11 +277,11 @@ testable() {
 
 
 dump_bin() {
-	echo @binary_object;
+	echo %binary_object;
 	# TODO: i probably have to send useless chars and read them back
 	# because base64 doesn't seem to handle an actual empty stream.
 	base64;
-	echo @end;
+	echo %end;
 }
 read_line() {
 	local IFS="";
@@ -282,10 +294,10 @@ read_line_ln() {
 }
 read_bin() {
 	local first_line=$(read_line);
-	[ "$first_line" == @binary_object ] || return 1;
+	[ "$first_line" == %binary_object ] || return 1;
 	{
 		while IFS="" read -r line || [ -n "$line" ]; do
-			[ "$line" == @end ] && break;
+			[ "$line" == %end ] && break;
 			printf %s "$line";
 		done;
 	} | base64 --decode;
@@ -322,11 +334,11 @@ echocom() {
 }
 
 send_to_stdout() {
-	echocom @print_stdout;
+	echocom @@print_stdout;
 	dump_bin 1>&3;
 }
 send_to_stderr() {
-	echocom @print_stderr;
+	echocom @@print_stderr;
 	dump_bin 1>&3;
 }
 
@@ -426,6 +438,7 @@ toplevel_args=();
 total_toplevel_args_shift_count=0;
 
 opt_p=0;
+opt_fake_su=0;
 
 shift_toplevel_args() {
 	local shift_count=${1:-1};
@@ -456,23 +469,26 @@ load_eof_values() {
 				(@end_of_header)
 					break;
 					;;
-				(@toplevel_arg)
+				(@@toplevel_arg)
 					toplevel_args+=("$(read_bin)");
 					;;
-				(@toplevel_scope_closing_token)
+				(@@toplevel_scope_closing_token)
 					toplevel_scope_closing_token=$(read_bin);
 					;;
-				(@rrssh_id)
+				(@@rrssh_id)
 					rrssh_id=$(read_bin);
 					;;
-				(@rrssh_fork_depth)
+				(@@rrssh_fork_depth)
 					rrssh_fork_depth=$(read_bin);
 					;;
-				(@rrssh_host_depth)
+				(@@rrssh_host_depth)
 					rrssh_host_depth=$(read_bin);
 					;;
 				(@opt_p)
 					opt_p=1;
+					;;
+				(@fake_su)
+					opt_fake_su=1;
 					;;
 				(*)
 					panic "Unknown object in kernel dump: '$object_type'.";
@@ -495,15 +511,16 @@ begin_basic_fork() {
 
 	local token;
 	for token in "${toplevel_args[@]}"; do
-		echo @toplevel_arg;
+		echo @@toplevel_arg;
 		dump_bin <<<"$token";
 	done;
 
 	((opt_p)) && echo @opt_p;
+	((opt_fake_su)) && echo @fake_su;
 
-	echo @rrssh_id;
+	echo @@rrssh_id;
 	dump_bin <<<"$rrssh_id";
-	echo @rrssh_fork_depth;
+	echo @@rrssh_fork_depth;
 	dump_bin <<<$((rrssh_fork_depth + 1));
 
 }
@@ -513,13 +530,17 @@ generic_message_handler() {
 	# subshell.  therefore we must forward the panic, which is also
 	# our own panic mecanism for unknown message type.
 
+	# the number of @ in general is the number of argments plus one,
+	# so that a function like this one can yield back messages that it
+	# doesn't support.
+
 	local line;
 	while IFS="" read -r line || [ -n "$line" ]; do
 		case "$line" in
-			(@print_stdout)
+			(@@print_stdout)
 				read_bin | send_to_stdout;
 				;;
-			(@print_stderr)
+			(@@print_stderr)
 				read_bin | send_to_stderr;
 				;;
 			(@panic)
@@ -527,18 +548,15 @@ generic_message_handler() {
 				;;
 			(@bliss)
 				echo @bliss;
+				break;
 				;;
-			(@exitcode)
-				echocom @exitcode;
-				echocom "$(read_line)";
+			(@@exitcode)
+				echocom @@exitcode;
+				read_bin | dump_bin 1>&3;
 				;;
-			(@scope_exitcode)
-				echo @scope_exitcode;
-				echo "$(read_line)";
-				;;
-			(@total_toplevel_shift)
-				echo @total_toplevel_shift;
-				echo "$(read_line)";
+			(@@*)
+				echo "$line";
+				read_bin | dump_bin;
 				;;
 			(*)
 				error "generic_message_handler: Unknown message '$line'.  Panic.";
@@ -690,10 +708,10 @@ command_fork() {
 	(
 		begin_basic_fork;
 
-		echo @toplevel_scope_closing_token;
+		echo @@toplevel_scope_closing_token;
 		dump_bin <<<"]";
 
-		echo @rrssh_host_depth;
+		echo @@rrssh_host_depth;
 		dump_bin <<<$((rrssh_host_depth + 1));
 
 		echo @end_of_header;
@@ -703,12 +721,13 @@ command_fork() {
 	local line;
 	while IFS="" read -r line || [ -n "$line" ]; do
 		case "$line" in
-			(@total_toplevel_shift)
+			(@@total_toplevel_shift)
 				total_scope_args_shift_provided=1;
-				total_scope_args_shift=$(read_line);
+				total_scope_args_shift=$(read_bin);
 				;;
 			(@bliss)
 				sub_analyser_bliss=1;
+				break;
 				;;
 			(@panic)
 				rm -f "$analysis_output";
@@ -737,10 +756,10 @@ command_fork() {
 
 
 
-		echo @toplevel_scope_closing_token;
+		echo @@toplevel_scope_closing_token;
 		dump_bin <<<"]";
 
-		echo @rrssh_host_depth;
+		echo @@rrssh_host_depth;
 		dump_bin <<<$((rrssh_host_depth + 1));
 
 		echo @end_of_header;
@@ -751,6 +770,12 @@ command_fork() {
 	) | (
 
 		print_landing_script() {
+
+			# the landing script should always exit 0 if it
+			# successfully runs the kernel, so that we know from the
+			# exit code whether the ssh/su command or the landing
+			# failed.
+
 			local call_args=("$@");
 			cat <<LANDING_SCRIPT;
 call_args=($(printf "%q " "${call_args[@]}"));
@@ -771,6 +796,7 @@ tee "$kernel_file_path" &> /dev/null || {
 
 bash "$kernel_file_path" -- "${call_args[@]}";
 rm -f "$kernel_file_path";
+exit 0;
 
 LANDING_SCRIPT
 
@@ -781,14 +807,21 @@ LANDING_SCRIPT
 			cmd+=(sudo);
 		fi;
 		if ((is_host_command)); then
-			cmd+=(ssh -- "$arg_destination");
+			cmd+=(ssh -o ConnectTimeout=10 -- "$arg_destination");
 		elif ((is_su_command)); then
-			cmd+=(su --login -- "$arg_username" -c);
+			if ! ((opt_fake_su)); then
+				cmd+=(su --login -- "$arg_username" -c);
+			else
+				cmd+=(bash -c);
+			fi;
 		elif ((is_scope_command)); then
 			cmd+=(bash -c);
 		fi;
 
 		"${cmd[@]}" "bash -c $(printf %q "$(print_landing_script --mode run)")";
+
+		# TODO: handle here whether to panic because of a failed
+		# landing or behave like a normal inner scope error.
 
 	) | (
 
@@ -809,14 +842,11 @@ LANDING_SCRIPT
 					;;
 				(@bliss)
 					echo @bliss;
+					break;
 					;;
-				(@total_toplevel_shift)
-					echo @total_toplevel_shift;
-					read_line_ln;
-					;;
-				(@scope_exitcode)
-					echo @scope_exitcode;
-					read_line_ln;
+				(@@*)
+					echo "$line";
+					read_bin | dump_bin;
 					;;
 				(*)
 					error "Unknown message received from sub kernel: '$line'. PANIC";
@@ -841,13 +871,14 @@ LANDING_SCRIPT
 				;;
 			(@bliss)
 				bliss_received=1;
+				break;
 				;;
-			(@total_toplevel_shift)
-				execution_total_args_shift=$(read_line);
+			(@@total_toplevel_shift)
+				execution_total_args_shift=$(read_bin);
 				;;
-			(@scope_exitcode)
+			(@@scope_exitcode)
 				scope_exitcode_received=1;
-				scope_exitcode=$(read_line);
+				scope_exitcode=$(read_bin);
 				;;
 			(*)
 				error "Unknown message received from sub kernel parsing code: '$line'.";
@@ -953,8 +984,8 @@ main_execution_loop() {
 				# TODO: check whether this is the token that closes
 				# our current scope.
 
-				echocom @exitcode;
-				echocom 1;
+				echocom @@exitcode;
+				dump_bin <<<"1" 1>&3;
 				panic "Invalid rrssh command: '$current_toplevel_command'.";
 				;;
 		esac;
@@ -990,13 +1021,13 @@ main_execution_loop() {
 		# when execution reaches here, we have completed a complete "command chain"
 		if ! ((current_chain_has_try_prefix)) && ! ((current_chain_rc == 0)); then
 			if ((opt_p)) || ((is_root_kernel)); then
-				echocom @exitcode;
-				echocom "$current_chain_rc";
+				echocom @@exitcode;
+				dump_bin <<<"$current_chain_rc" 1>&3;
 				# TODO: add command chain and line number to error message
 				panic "The command chain exited non-0.";
 			else
-				echocom @scope_exitcode;
-				echocom "$current_chain_rc";
+				echocom @@scope_exitcode;
+				dump_bin <<<"$current_chain_rc" 1>&3;
 				break;
 			fi;
 		fi;
@@ -1018,8 +1049,8 @@ main() {
 	main_execution_loop;
 
 	if ! ((is_root_kernel)); then
-		echocom @total_toplevel_shift;
-		echocom "$total_toplevel_args_shift_count";
+		echocom @@total_toplevel_shift;
+		dump_bin <<<"$total_toplevel_args_shift_count" 1>&3;
 	fi;
 	echocom @bliss;
 }
@@ -1109,17 +1140,18 @@ command_run() {
 		echo "###;;;";
 		
 		for toplevel_arg in "${toplevel_commands[@]}"; do
-			echo @toplevel_arg;
+			echo @@toplevel_arg;
 			dump_bin <<<"$toplevel_arg";
 		done;
 
 		((opt_p)) && echo @opt_p;
+		((opt_fake_su)) && echo @fake_su;
 
-		echo @rrssh_id;
+		echo @@rrssh_id;
 		tr -dc 0123456789abcdefghijklmnopqrstuvwxyz < /dev/urandom | head -c 10 | dump_bin;
-		echo @rrssh_fork_depth;
+		echo @@rrssh_fork_depth;
 		dump_bin <<<"0";
-		echo @rrssh_host_depth;
+		echo @@rrssh_host_depth;
 		dump_bin <<<"0";
 		
 		echo @end_of_header;
@@ -1128,18 +1160,19 @@ command_run() {
 	bash "$temp_kernel_path" -- --mode run --root 2> /dev/null | (
 		while IFS="" read -r line || [ -n "$line" ]; do
 			case "$line" in
-				(@print_stdout)
+				(@@print_stdout)
 					read_bin;
 					;;
-				(@print_stderr)
+				(@@print_stderr)
 					read_bin 1>&2;
 					;;
 				(@bliss)
 					echo @bliss >> "$temp_com_file";
+					break;
 					;;
-				(@exitcode)
-					echo @exitcode >> "$temp_com_file";
-					read_line_ln >> "$temp_com_file";
+				(@@exitcode)
+					echo @@exitcode >> "$temp_com_file";
+					read_bin >> "$temp_com_file";
 					;;
 				(@panic)
 					echo @panic >> "$temp_com_file";
@@ -1159,13 +1192,14 @@ command_run() {
 	local bliss_received=0;
 	while IFS="" read -r line || [ -n "$line" ]; do
 		case "$line" in
-			(@exitcode)
+			(@@exitcode)
 				exitcode_received=1;
-				exitcode=$(read_line);
+				exitcode=$(read_bin);
 				# read_line;
 				;;
 			(@bliss)
 				bliss_received=1;
+				break;
 				;;
 			(@panic)
 				panic_received=1;
