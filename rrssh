@@ -215,6 +215,8 @@ opt_fake_su=0;
 opt_script_provided=0;
 arg_script=();
 
+make_command_fail_ids=();
+
 trailing_args=();
 while (($#)); do
 	arg=$1;
@@ -256,6 +258,10 @@ while (($#)); do
 		(--fake-su)
 			opt_fake_su=1;
 			;;
+		(--make-command-fail)
+			make_command_fail_ids+=("$1");
+			shift;
+			;;
 		(*)
 			trailing_args+=("$arg");
 			;;
@@ -269,7 +275,13 @@ unset arg;
 testable() {
 	local command_id=$1;
 	shift;
-	"$@" 3>&-;
+    local id;
+	for id in "${make_command_fail_ids[@]}"; do
+		if [ "$id" == "$command_id" ]; then
+			return 1;
+		fi;
+	done;
+	"$@";
 }
 
 
@@ -325,6 +337,7 @@ KERNEL
 	declare -f read_line_ln;
 	declare -f read_bin;
 	declare -f print_kernel;
+	declare -f testable;
 
 	cat <<"KERNEL";
 
@@ -442,6 +455,8 @@ toplevel_scope_closing_token="";
 toplevel_args=();
 total_toplevel_args_shift_count=0;
 
+make_command_fail_ids=();
+
 opt_p=0;
 opt_fake_su=0;
 
@@ -495,6 +510,9 @@ load_eof_values() {
 				(@fake_su)
 					opt_fake_su=1;
 					;;
+				(@@make_command_fail_id)
+					make_command_fail_ids+=("$(read_bin)");
+					;;
 				(*)
 					panic "Unknown object in kernel dump: '$object_type'.";
 					;;
@@ -518,6 +536,12 @@ begin_basic_fork() {
 	for token in "${toplevel_args[@]}"; do
 		echo @@toplevel_arg;
 		dump_bin <<<"$token";
+	done;
+
+	local id;
+	for id in "${make_command_fail_ids[@]}"; do
+		echo @@make_command_fail_id;
+		dump_bin <<<"$id";
 	done;
 
 	((opt_p)) && echo @opt_p;
@@ -788,9 +812,11 @@ command_fork() {
 echo @landing_start;
 
 call_args=($(printf "%q " "${call_args[@]}"));
+make_command_fail_ids=($(printf "%q " "${make_command_fail_ids[@]}"));
 LANDING_SCRIPT
 
 			declare -f dump_bin;
+			declare -f testable;
 
 			cat <<"LANDING_SCRIPT";
 
@@ -809,11 +835,13 @@ debug() {
 }
 
 
-kernel_file_path=$(mktemp) || {
+kernel_file_path=$(testable id_nuirhienvfh mktemp) || {
+	error "mktemp failed.  Could not create a temporary file for the sub kernel.";
 	exit 1;
 };
 
-tee "$kernel_file_path" &> /dev/null || {
+testable id_fdhv9qh5gf tee "$kernel_file_path" &> /dev/null || {
+	error "tee failed.  Could not dump contents to the temporary file meant to hold the sub kernel."
 	rm -f "$kernel_file_path";
 	exit 1;
 };
@@ -938,7 +966,7 @@ LANDING_SCRIPT
 		# voluntarily.
 
 		if ((landing_start_received)); then
-			panic "The ssh or su command seems to succeed, but the sub-kernel could not be started.";
+			panic "The ssh or su command seems to succeed, but the sub-kernel could not be started during duplication.";
 		else
 			panic "The ssh or su command seems to fail." \
 				"Is an ssh key missing?" \
@@ -1197,6 +1225,11 @@ command_run() {
 		for toplevel_arg in "${toplevel_commands[@]}"; do
 			echo @@toplevel_arg;
 			dump_bin <<<"$toplevel_arg";
+		done;
+
+		for id in "${make_command_fail_ids[@]}"; do
+			echo @@make_command_fail_id;
+			dump_bin <<<"$id";
 		done;
 
 		((opt_p)) && echo @opt_p;
