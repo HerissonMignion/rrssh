@@ -758,7 +758,6 @@ command_fork() {
 				;;
 			(@bliss)
 				sub_analyser_bliss=1;
-				break;
 				;;
 			(@panic)
 				rm -f "$analysis_output";
@@ -895,7 +894,6 @@ LANDING_SCRIPT
 					;;
 				(@bliss)
 					echo @bliss;
-					# break; # we need to receive fork_command_rc
 					;;
 				(@@*)
 					echo "$line";
@@ -930,7 +928,6 @@ LANDING_SCRIPT
 				;;
 			(@bliss)
 				bliss_received=1;
-				# break; # we need to receive fork_command_rc
 				;;
 			(@@total_toplevel_shift)
 				execution_total_args_shift=$(read_bin);
@@ -1285,11 +1282,10 @@ run_root_kernel_mode() {
 					;;
 				(@bliss)
 					echo @bliss >> "$temp_com_file";
-					break;
 					;;
 				(@@exitcode)
 					echo @@exitcode >> "$temp_com_file";
-					read_bin >> "$temp_com_file";
+					read_bin | dump_bin >> "$temp_com_file";
 					;;
 				(@panic)
 					echo @panic >> "$temp_com_file";
@@ -1316,7 +1312,6 @@ run_root_kernel_mode() {
 				;;
 			(@bliss)
 				bliss_received=1;
-				break;
 				;;
 			(@panic)
 				panic_received=1;

@@ -25,5 +25,14 @@ teardown() {
 	assert_success;
 }
 
-# TODO: exit code
+
+
+@test "rrssh returns the failing command's exit code" {
+	run rrssh run --- --- exit 0 ---;
+	assert_success;
+
+	run rrssh run --- --- exit 4 ---;
+	assert_failure 4;
+}
+
 
