@@ -14,7 +14,7 @@ teardown() {
 
 
 
-@test "basic an empty scope is successful" {
+@test "an empty scope is successful" {
 	run rrssh run --- [ ];
 	assert_success;
 

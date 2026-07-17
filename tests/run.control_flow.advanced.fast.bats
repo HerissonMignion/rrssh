@@ -40,7 +40,9 @@ teardown() {
 	assert_failure;
 	assert_output --partial asdf;
 	refute_output --partial qwer;
+}
 
+@test "advanced control flow 2" {
 
 	run rrssh run --- --- echo asdf --- or --- false ---;
 	assert_success;
@@ -57,11 +59,9 @@ teardown() {
 	run rrssh run --- --- echo asdf --- or --- false --- and not --- false ---;
 	assert_success;
 	assert_output --partial asdf;
-	
-	
 }
 
-@test "advanced control flow 2" {
+@test "advanced control flow 3" {
 	run rrssh run --- host localhost [ --- false --- ] --- echo asdf ---;
 	assert_failure;
 	refute_output --partial asdf;
@@ -83,11 +83,10 @@ teardown() {
 	assert_success;
 	assert_output --partial qwer;
 	refute_output --partial asdf;
-
 }
 
 
-@test "advanced control flow 3" {
+@test "advanced control flow 4" {
 	run rrssh run --- [ [ ] ] --- echo asdf ---;
 	assert_success;
 	assert_output --partial asdf;
@@ -120,7 +119,9 @@ teardown() {
 	refute_output --partial asdf;
 	refute_output --partial qwer;
 	refute_output --partial ffgf;
+}
 
+@test "advanced control flow 5" {
 	run rrssh run --- [ try [ false --- echo asdf --- ] --- echo qwer --- false ] --- echo ffgf ---;
 	assert_failure;
 	refute_output --partial asdf;
@@ -144,9 +145,7 @@ teardown() {
 	assert_output --partial asdf;
 	refute_output --partial qwer;
 	assert_output --partial ffgf;
-	
 }
-
 
 
 

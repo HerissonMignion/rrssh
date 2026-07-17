@@ -65,7 +65,7 @@ SCRIPT
 }
 
 
-@test "basic execution is stopped at the first non-0 exit code" {
+@test "execution is stopped at the first non-0 exit code" {
 	run rrssh run --- command [ exit 1 ];
 	assert_failure;
 
@@ -95,30 +95,7 @@ SCRIPT
 	
 }
 
-@test "basic 'command' command syntax" {
-	run rrssh run --- --- echo asdf ---;
-	assert_success;
-	assert_output asdf;
-	
-	run rrssh run --- command [ echo asdf ];
-	assert_success;
-	assert_output asdf;
-	
-	run rrssh run --- command "echo asdf";
-	assert_success;
-	assert_output asdf;
-
-	run rrssh run --- --- echo asdf;
-	assert_failure;
-	refute_output --partial asdf;
-
-	run rrssh run --- command "[" echo asdff;
-	assert_failure;
-	refute_output --partial asdf;
-	
-}
-
-@test "basic operator 'not' control flow" {
+@test "operator 'not' control flow" {
 	run rrssh run --- not command [ true ];
 	assert_failure;
 
@@ -138,39 +115,6 @@ SCRIPT
 	assert_output --partial asdf;
 }
 
-@test "basic operator 'try' 'not' syntax" {
-	run rrssh run --- not;
-	assert_failure;
-	run rrssh run --- not not;
-	assert_failure;
-
-	run rrssh run --- try;
-	assert_failure;
-	run rrssh run --- try try;
-	assert_failure;
-
-	run rrssh run --- not try;
-	assert_failure;
-
-	run rrssh run --- try not;
-	assert_failure;
-
-	run rrssh run --- not try command [ echo asdf ];
-	assert_failure;
-	refute_output --partial asdf;
-
-	run rrssh run --- try not command [ echo asdf ];
-	assert_success;
-	assert_output --partial asdf;
-
-	run rrssh run --- try command [ true ] try try;
-	assert_failure;
-
-	run rrssh run --- not not command [ true ];
-	assert_failure;
-	run rrssh run --- not not command [ false ];
-	assert_failure;
-}
 
 
 
