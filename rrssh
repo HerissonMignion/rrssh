@@ -1367,6 +1367,9 @@ main() {
 		(run)
 			command_run;
 			;;
+		(check)
+			command_check;
+			;;
 		(print)
 			((toplevel_commands_provided)) || {
 				1>&2 echo "You need to provide a script";
