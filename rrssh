@@ -346,6 +346,8 @@ echocom() {
 	echo "$@" 1>&3;
 }
 
+echocom @kernel_start;
+
 send_to_stdout() {
 	echocom @@print_stdout;
 	dump_bin 1>&3;
@@ -763,9 +765,12 @@ command_fork() {
 				rm -f "$analysis_output";
 				panic "Sub kernel panicked during analysis.";
 				;;
+			(@kernel_start)
+				true;
+				;;
 			(*)
 				rm -f "$analysis_output";
-				panic "Unknown message in scope analysis: '$line'.";
+				panic "Unknown message during scope analysis: '$line'.";
 				;;
 		esac;
 	done < "$analysis_output";
@@ -795,7 +800,8 @@ command_fork() {
 		echo @end_of_header;
 
 		# TODO: append files and folders only if we are a host
-		# command.
+		# command.  hum, but there's not guarenty that the new user
+		# can read the previous user's kernel to retrive information.
 
 	) | (
 
@@ -823,8 +829,15 @@ send_to_stderr() {
 	echo @@print_stderr;
 	dump_bin;
 }
+send_to_landing_err() {
+	echo @@print_landing_err;
+	dump_bin;
+}
 printferr() {
 	printf "$@" | send_to_stderr;
+}
+printf_landing_err() {
+	printf "$@" | send_to_landing_err;
 }
 error() {
 	printferr "ERROR: %s ERROR\n" "$@";
@@ -834,18 +847,20 @@ debug() {
 }
 
 
+
+
 kernel_file_path=$(testable id_nuirhienvfh mktemp) || {
-	error "mktemp failed.  Could not create a temporary file for the sub kernel.";
+	printf_landing_err "mktemp failed.  Could not create a temporary file for the sub kernel.";
 	exit 1;
 };
 
 testable id_fdhv9qh5gf tee "$kernel_file_path" &> /dev/null || {
-	error "tee failed.  Could not dump contents to the temporary file meant to hold the sub kernel."
+	printf_landing_err "tee failed.  Could not dump contents to the temporary file meant to hold the sub kernel."
 	rm -f "$kernel_file_path";
 	exit 1;
 };
 
-bash "$kernel_file_path" -- "${call_args[@]}";
+testable id_asudhfisuh bash "$kernel_file_path" -- "${call_args[@]}";
 rm -f "$kernel_file_path";
 exit 0;
 
@@ -912,7 +927,15 @@ LANDING_SCRIPT
 
 	) > "$temp_com_file";
 
+	# the landing process has its own "stream" of error messages other
+	# than "stdout" "stderr" so that we catch and print these messages
+	# only if rrssh was not provided the option to not panic on failed
+	# ssh/su.
+	local landing_msgs=(); # all errors.  the landing does not print any happy messages.
+	local landing_failed=0;
+
 	local bliss_received=0;
+	local ignore_missing_bliss=0;
 	local must_panic=0;
 	local execution_total_args_shift=0;
 	local scope_exitcode_received=0;
@@ -920,6 +943,7 @@ LANDING_SCRIPT
 	local fork_command_rc_received=0;
 	local fork_command_rc=0;
 	local landing_start_received=0;
+	local kernel_start_received=0;
 	while IFS="" read -r line || [ -n "$line" ]; do
 		case "$line" in
 			(@panic)
@@ -943,8 +967,14 @@ LANDING_SCRIPT
 			(@landing_start)
 				landing_start_received=1;
 				;;
+			(@kernel_start)
+				kernel_start_received=1;
+				;;
+			(@@print_landing_err)
+				landing_msgs+=("$(read_bin)");
+				;;
 			(*)
-				error "Unknown message received from sub kernel parsing code: '$line'.";
+				error "Unknown message received from sub kernel result parsing code: '$line'.";
 				must_panic=1;
 				break;
 				;;
@@ -962,14 +992,51 @@ LANDING_SCRIPT
 		# a failing ssh/su VS the landing script that exited non-0
 		# voluntarily.
 
+		landing_failed=1;
+
 		if ((landing_start_received)); then
-			panic "The ssh or su command seems to succeed, but the sub-kernel could not be started during duplication.";
+			if ((kernel_start_received)); then
+				landing_msgs+=(
+					"The ssh or su command succeeded and the sub-kernel started, but something happened."
+				);
+			else
+				landing_msgs+=(
+					"The ssh or su command succeeded, but the sub-kernel could not be started during duplication."
+				);
+			fi;
 		else
-			panic "The ssh or su command seems to fail." \
-				"Is an ssh key missing?" \
-				"Is ssh, su, or sudo prompting for a password?" \
-				"Is the destination resolving and reachable?" \
-				"Is there any spelling misatke?";
+			landing_msgs+=(
+				"The ssh or su command seems to fail."
+				"Is an ssh key missing?"
+				"Is ssh, su, or sudo prompting for a password?"
+				"Is the destination resolving and reachable?"
+				"Is there any spelling misatke?"
+			);
+		fi;
+	elif ! ((landing_start_received)); then
+		landing_failed=1;
+		landing_msgs+=(
+			"The ssh or su command seems to fail."
+			"Is an ssh key missing?"
+			"Is ssh, su, or sudo prompting for a password?"
+			"Is the destination resolving and reachable?"
+			"Is there any spelling misatke?"
+		);
+	elif ! ((kernel_start_received)); then
+		landing_failed=1;
+		landing_msgs+=(
+			"The ssh or su command succeeded, but the kernel failed to start."
+		);
+	fi;
+
+	if ((landing_failed)); then
+		if true; then
+			panic "${landing_msgs[@]}";
+		else
+			ignore_missing_bliss=1;
+			# instead of panicking, we behave like a scope that exited non-0.
+			scope_exitcode_received=1;
+			scope_exitcode=1;
 		fi;
 	fi;
 
@@ -985,7 +1052,7 @@ LANDING_SCRIPT
 	};
 	shift_toplevel_args "$total_scope_args_shift";
 
-	if ! ((bliss_received)); then
+	if ! ((bliss_received)) && ! ((ignore_missing_bliss)); then
 		panic "Sub kernel at remote host did not end blissfully.";
 	fi;
 
@@ -1289,6 +1356,9 @@ run_root_kernel_mode() {
 					;;
 				(@panic)
 					echo @panic >> "$temp_com_file";
+					;;
+				(@kernel_start)
+					true; # we do nothing
 					;;
 				(*)
 					1>&2 echo "Unknown object in kernel output: $line";
