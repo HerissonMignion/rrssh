@@ -163,11 +163,6 @@ COMMANDS USED BY RRSSH'S TEST SUITE
 		child scopes.
 
 
-
-pour implémenter les if et les scopes, il faut donner au nouveau
-kernel le token qui met fin à son scope (pour les scope) et une option
-qui indique qu'il doit rouler une seule commande (pour les if).
-
 HELP
 }
 
@@ -219,6 +214,12 @@ unimplemented_wishlist() {
 			fi
 
 		TODO
+
+
+
+pour implémenter les if et les scopes, il faut donner au nouveau
+kernel le token qui met fin à son scope (pour les scope) et une option
+qui indique qu'il doit rouler une seule commande (pour les if).
 
 
 HELP
