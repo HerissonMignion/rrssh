@@ -67,15 +67,6 @@ MAIN COMMANDS
 		amount of tokens.  With -l, do not quote the tokens using
 		printf %q.
 
-	pretty-print
-
-		Pretty prints the script for an easier visual analysis.
-
-	walk
-
-		Try going through all the hosts and all the user switchings,
-		without running any commands.
-
 	print-kernel
 
 		Duplicates the kernel to stdout.  Send it to shellcheck for
@@ -162,6 +153,40 @@ COMMANDS
 
 		Do nothing, with success or failure.
 
+COMMANDS USED BY RRSSH'S TEST SUITE
+
+	make-command-fail <id>
+
+		Do not use this.  This is intended for the test suite.  Makes
+		a command fail to validate the behavior of the error paths.
+		This will be in effect only for the current scope and all
+		child scopes.
+
+
+
+pour implémenter les if et les scopes, il faut donner au nouveau
+kernel le token qui met fin à son scope (pour les scope) et une option
+qui indique qu'il doit rouler une seule commande (pour les if).
+
+HELP
+}
+
+unimplemented_wishlist() {
+	cat <<"HELP";
+
+
+	pretty-print
+
+		Pretty prints the script for an easier visual analysis.
+
+	walk
+
+		Try going through all the hosts and all the user switchings,
+		without running any commands.
+
+
+
+
 	for <variable> in <values>... [ <commands>... ]
 	for <variable> <delim> <values>... <delim> <command>
 	for <variable> <delim> <values>... <delim> [ <commands>... ]
@@ -195,20 +220,6 @@ COMMANDS
 
 		TODO
 
-COMMANDS USED BY RRSSH'S TEST SUITE
-
-	make-command-fail <id>
-
-		Do not use this.  This is intended for the test suite.  Makes
-		a command fail to validate the behavior of the error paths.
-		This will be in effect only for the current scope and all
-		child scopes.
-
-
-
-pour implémenter les if et les scopes, il faut donner au nouveau
-kernel le token qui met fin à son scope (pour les scope) et une option
-qui indique qu'il doit rouler une seule commande (pour les if).
 
 HELP
 }
@@ -1057,9 +1068,13 @@ LANDING_SCRIPT
 	fi;
 
 	if ((landing_failed)); then
-		if true; then
+		if ! ((opt_i)); then
 			panic "${landing_msgs[@]}";
 		else
+
+			# MAYBE TODO: maybe we should still panic if we are a
+			# simple scope and not a host or su command.
+
 			ignore_missing_bliss=1;
 			# instead of panicking, we behave like a scope that exited non-0.
 			scope_exitcode_received=1;

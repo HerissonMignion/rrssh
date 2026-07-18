@@ -310,7 +310,94 @@ SCRIPT
 	refute_output --partial ffgf;
 }
 
+@test "-i makes host command not panic on landing failure" {
+	run rrssh -i run -f - <<"SCRIPT";
+host localhost [
+	--- echo asdf ---
+	make-command-fail id_nuirhienvfh
+	host localhost [
+		--- echo qwer ---
+	] or --- echo ffgf ---
+]
+SCRIPT
+	assert_success;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	assert_output --partial ffgf;
 
+	run rrssh -i run -f - <<"SCRIPT";
+host localhost [
+	--- echo asdf ---
+	make-command-fail id_fdhv9qh5gf
+	host localhost [
+		--- echo qwer ---
+	] or --- echo ffgf ---
+]
+SCRIPT
+	assert_success;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	assert_output --partial ffgf;
+
+	run rrssh -i run -f - <<"SCRIPT";
+host localhost [
+	--- echo asdf ---
+	make-command-fail id_asudhfisuh
+	host localhost [
+		--- echo qwer ---
+	] or --- echo ffgf ---
+]
+SCRIPT
+	assert_success;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	assert_output --partial ffgf;
+}
+
+@test "-i makes su command not panic on landing failure" {
+	run rrssh --fake-su -i run -f - <<"SCRIPT";
+host localhost [
+	--- echo asdf ---
+	make-command-fail id_nuirhienvfh
+	su charles [
+		--- echo qwer ---
+	] or --- echo ffgf ---
+]
+SCRIPT
+	assert_success;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	assert_output --partial ffgf;
+
+	run rrssh --fake-su -i run -f - <<"SCRIPT";
+host localhost [
+	--- echo asdf ---
+	make-command-fail id_fdhv9qh5gf
+	su charles [
+		--- echo qwer ---
+	] or --- echo ffgf ---
+] or --- echo rrtr ---
+SCRIPT
+	assert_success;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	assert_output --partial ffgf;
+	refute_output --partial rrtr;
+
+	run rrssh --fake-su -i run -f - <<"SCRIPT";
+host localhost [
+	--- echo asdf ---
+	make-command-fail id_asudhfisuh
+	su charles [
+		--- echo qwer ---
+	] or --- echo ffgf ---
+]
+SCRIPT
+	assert_success;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	assert_output --partial ffgf;
+}
 
 
 
