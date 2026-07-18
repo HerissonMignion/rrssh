@@ -1139,7 +1139,9 @@ main_execution_loop() {
 				;;
 		esac;
 		is_first_command_of_chain=0;
-		((current_command_reverse_rc)) && ((current_command_rc ^= 1));
+		if ((current_command_reverse_rc)); then
+			current_command_rc=$((! current_command_rc));
+		fi;
 
 		# if the command had to run, its return code is now the
 		# current return code of the command chain.
@@ -1155,7 +1157,7 @@ main_execution_loop() {
 					;;
 				(or)
 					operator_used=1;
-					skip_current_command_execution_flag=$((current_chain_rc ^ 1));
+					skip_current_command_execution_flag=$((! current_chain_rc));
 					;;
 			esac;
 			if ((operator_used)); then

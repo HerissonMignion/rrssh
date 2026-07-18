@@ -27,12 +27,35 @@ teardown() {
 
 
 
-@test "rrssh returns the failing command's exit code" {
+@test "rrssh returns the failing command's exit code 1" {
 	run rrssh run --- --- exit 0 ---;
 	assert_success;
 
 	run rrssh run --- --- exit 4 ---;
 	assert_failure 4;
+
+	run rrssh run --- --- exit 3 --- --- exit 5 ---;
+	assert_failure 3;
+
+	run rrssh run --- not --- exit 3 --- --- exit 5 ---;
+	assert_failure 5;
+
+	run rrssh run --- --- exit 7 --- and --- exit 3 ---;
+	assert_failure 7;
+
+	run rrssh run --- [ --- exit 7 --- ] and --- exit 3 ---;
+	assert_failure 7;
+
+	run rrssh run --- [ --- exit 7 --- ] or --- exit 3 ---;
+	assert_failure 3;
+}
+
+@test "rrssh returns the failing command's exit code 2" {
+	run rrssh run --- [ [ [ [ --- exit 4 --- ] ] ] ];
+	assert_failure 4;
+
+	run rrssh run [ [ --- exit 3 --- ] ] and host localhost [ [ [ --- exit 7 --- ] ] ];
+	assert_failure 3;
 }
 
 
