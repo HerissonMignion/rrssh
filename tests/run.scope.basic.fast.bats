@@ -219,7 +219,96 @@ SCRIPT
 
 }
 
+@test "host command's landing error paths triggers a panic" {
+	run rrssh run -f - <<"SCRIPT";
+host localhost [
+	--- echo asdf ---
+	make-command-fail id_nuirhienvfh
+	host localhost [
+		--- echo qwer ---
+	] or --- echo ffgf ---
+]
+SCRIPT
+	assert_failure;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	refute_output --partial ffgf;
 
+	run rrssh run -f - <<"SCRIPT";
+try host localhost [
+	--- echo asdf ---
+	make-command-fail id_fdhv9qh5gf
+	try host localhost [
+		--- echo qwer ---
+	] or --- echo ffgf ---
+] or true
+SCRIPT
+	assert_failure;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	refute_output --partial ffgf;
+
+	run rrssh run -f - <<"SCRIPT";
+host localhost [
+	--- echo asdf ---
+	make-command-fail id_asudhfisuh
+	host localhost [
+		--- echo qwer ---
+	] or --- echo ffgf ---
+] or --- echo rrtr ---
+SCRIPT
+	assert_failure;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	refute_output --partial ffgf;
+	refute_output --partial rrtr;
+}
+
+
+
+@test "su command's landing error paths triggers a panic" {
+	run rrssh --fake-su run -f - <<"SCRIPT";
+host localhost [
+	--- echo asdf ---
+	make-command-fail id_nuirhienvfh
+	su charles [
+		--- echo qwer ---
+	] or --- echo ffgf ---
+]
+SCRIPT
+	assert_failure;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	refute_output --partial ffgf;
+
+	run rrssh --fake-su run -f - <<"SCRIPT";
+host localhost [
+	--- echo asdf ---
+	make-command-fail id_fdhv9qh5gf
+	su charles [
+		--- echo qwer ---
+	] or --- echo ffgf ---
+]
+SCRIPT
+	assert_failure;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	refute_output --partial ffgf;
+
+	run rrssh --fake-su run -f - <<"SCRIPT";
+host localhost [
+	--- echo asdf ---
+	make-command-fail id_asudhfisuh
+	su charles [
+		--- echo qwer ---
+	] or --- echo ffgf ---
+]
+SCRIPT
+	assert_failure;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	refute_output --partial ffgf;
+}
 
 
 
