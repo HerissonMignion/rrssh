@@ -35,6 +35,20 @@ teardown() {
 	run rrssh run --- command "[" echo asdff;
 	assert_failure;
 	refute_output --partial asdf;
+
+	run rrssh run --- command;
+	assert_failure;
+
+	run rrssh run --- command [ echo asdf ] command;
+	assert_failure;
+
+	# we try to run a command called "]", which doesn't exist
+	# current commented because bats warns that 127 is for commands not found...
+	# run -127 rrssh run --- command "]";
+	# assert_failure;
+
+	# run -127 rrssh run --- [ command "]" ];
+	# assert_failure;
 	
 }
 
@@ -72,8 +86,12 @@ teardown() {
 	assert_failure;
 }
 
-@test "whole script syntax is validated befor execution starts" {
+@test "whole script syntax is validated before execution starts" {
 	run rrssh run --- --- echo asdf --- "[";
+	assert_failure;
+	refute_output --partial asdf;
+
+	run rrssh run --- --- echo asdf --- command;
 	assert_failure;
 	refute_output --partial asdf;
 

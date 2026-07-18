@@ -54,8 +54,187 @@ teardown() {
 	run rrssh run --- [ [ [ [ --- exit 4 --- ] ] ] ];
 	assert_failure 4;
 
-	run rrssh run [ [ --- exit 3 --- ] ] and host localhost [ [ [ --- exit 7 --- ] ] ];
+	run rrssh run --- [ [ --- exit 3 --- ] ] and host localhost [ [ [ --- exit 7 --- ] ] ];
 	assert_failure 3;
 }
+
+@test "host command's landing error paths are working" {
+	run rrssh run -f - <<"SCRIPT";
+host localhost [
+	host localhost [
+		--- echo asdf ---
+		make-command-fail id_nuirhienvfh
+		host localhost [
+			--- echo qwer ---
+		]
+		--- echo ffgf ---
+	]
+]
+SCRIPT
+	assert_failure;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	refute_output --partial ffgf;
+	
+	run rrssh run -f - <<"SCRIPT";
+host localhost [
+	host localhost [
+		--- echo asdf ---
+		make-command-fail id_fdhv9qh5gf
+		host localhost [
+			--- echo qwer ---
+		]
+		--- echo ffgf ---
+	]
+]
+SCRIPT
+	assert_failure;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	refute_output --partial ffgf;
+	
+	run rrssh run -f - <<"SCRIPT";
+host localhost [
+	host localhost [
+		--- echo asdf ---
+		make-command-fail id_asudhfisuh
+		host localhost [
+			--- echo qwer ---
+		]
+		--- echo ffgf ---
+	]
+]
+SCRIPT
+	assert_failure;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	refute_output --partial ffgf;
+
+}
+
+
+@test "su command's landing error paths are working" {
+	run rrssh --fake-su run -f - <<"SCRIPT";
+host localhost [
+	host localhost [
+		--- echo asdf ---
+		make-command-fail id_nuirhienvfh
+		su charles [
+			--- echo qwer ---
+		]
+		--- echo ffgf ---
+	]
+]
+SCRIPT
+	assert_failure;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	refute_output --partial ffgf;
+	
+	run rrssh --fake-su run -f - <<"SCRIPT";
+host localhost [
+	host localhost [
+		--- echo asdf ---
+		make-command-fail id_fdhv9qh5gf
+		su charles [
+			--- echo qwer ---
+		]
+		--- echo ffgf ---
+	]
+]
+SCRIPT
+	assert_failure;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	refute_output --partial ffgf;
+	
+	run rrssh --fake-su run -f - <<"SCRIPT";
+host localhost [
+	host localhost [
+		--- echo asdf ---
+		make-command-fail id_asudhfisuh
+		su charles [
+			--- echo qwer ---
+		]
+		--- echo ffgf ---
+	]
+]
+SCRIPT
+	assert_failure;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	refute_output --partial ffgf;
+}
+
+@test "-p makes rrssh panic on any failing command chain" {
+	run rrssh run -f - <<"SCRIPT";
+[
+	--- exit 7 ---
+] or --- echo asdf ---
+SCRIPT
+	assert_success;
+	assert_output --partial asdf;
+
+	run rrssh -p run -f - <<"SCRIPT";
+[
+	--- exit 7 ---
+] or --- echo asdf ---
+SCRIPT
+	assert_failure 7;
+	refute_output --partial asdf;
+
+	
+	run rrssh run -f - <<"SCRIPT";
+host localhost [
+	--- exit 7 ---
+] or --- echo asdf ---
+SCRIPT
+	assert_success;
+	assert_output --partial asdf;
+
+	run rrssh -p run -f - <<"SCRIPT";
+host localhost [
+	--- exit 7 ---
+] or --- echo asdf ---
+SCRIPT
+	assert_failure 7;
+	refute_output --partial asdf;
+
+	
+	run rrssh --fake-su run -f - <<"SCRIPT";
+su charles [
+	--- exit 7 ---
+] or --- echo asdf ---
+SCRIPT
+	assert_success;
+	assert_output --partial asdf;
+
+	run rrssh --fake-su -p run -f - <<"SCRIPT";
+su charles [
+	--- exit 7 ---
+] or --- echo asdf ---
+SCRIPT
+	assert_failure 7;
+	refute_output --partial asdf;
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

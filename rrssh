@@ -100,9 +100,14 @@ OPTIONS
 
 	-p
 
-		Any command chain that does not exit with 0 will make rrssh
-		panic.  Default behavior is to only make the parent scope exit
-		non-0.
+		Make any command chain that does not exit with 0 trigger a
+		rrssh panic.  Default behavior is to only make the parent
+		scope exit non-0.
+
+	-i
+
+		Any command host or su that fails will be handled as if their
+		internal scope had exited non-0 instead of triggering a panic.
 
 	-n <index>
 
@@ -190,12 +195,20 @@ COMMANDS
 
 		TODO
 
+COMMANDS USED BY RRSSH'S TEST SUITE
+
+	make-command-fail <id>
+
+		Do not use this.  This is intended for the test suite.  Makes
+		a command fail to validate the behavior of the error paths.
+		This will be in effect only for the current scope and all
+		child scopes.
+
+
+
 pour implémenter les if et les scopes, il faut donner au nouveau
 kernel le token qui met fin à son scope (pour les scope) et une option
 qui indique qu'il doit rouler une seule commande (pour les if).
-
-
-
 
 HELP
 }
@@ -210,6 +223,7 @@ arg_n="";
 opt_l=0;
 opt_t=0;
 opt_p=0;
+opt_i=0;
 opt_fake_su=0;
 
 opt_script_provided=0;
@@ -254,6 +268,9 @@ while (($#)); do
 			;;
 		(-p)
 			opt_p=1;
+			;;
+		(-i)
+			opt_i=1;
 			;;
 		(--fake-su)
 			opt_fake_su=1;
@@ -460,6 +477,7 @@ total_toplevel_args_shift_count=0;
 make_command_fail_ids=();
 
 opt_p=0;
+opt_i=0;
 opt_fake_su=0;
 
 shift_toplevel_args() {
@@ -509,6 +527,9 @@ load_eof_values() {
 				(@opt_p)
 					opt_p=1;
 					;;
+				(@opt_i)
+					opt_i=1;
+					;;
 				(@fake_su)
 					opt_fake_su=1;
 					;;
@@ -547,6 +568,7 @@ begin_basic_fork() {
 	done;
 
 	((opt_p)) && echo @opt_p;
+	((opt_i)) && echo @opt_i;
 	((opt_fake_su)) && echo @fake_su;
 
 	echo @@rrssh_id;
@@ -625,6 +647,11 @@ current_command_must_run_p() {
 command_command() {
 	local arg0=$(peek_toplevel_args);
 	shift_toplevel_args;
+
+	# command needs either a string for system() or [ ], so one argument obligatory.
+	any_toplevel_args_remaining || {
+		panic "The command 'command' must be provided with an argument.";
+	};
 
 	local arg1=$(peek_toplevel_args);
 	local string_command="";
@@ -1062,6 +1089,22 @@ LANDING_SCRIPT
 
 }
 
+command_make_command_fail() {
+	shift_toplevel_args;
+
+	any_toplevel_args_remaining || {
+		panic "The command 'make-command-fail' needs 1 argument.";
+	};
+
+	local id=$(peek_toplevel_args);
+	shift_toplevel_args;
+
+	current_command_must_run_p || return 0;
+
+	make_command_fail_ids+=("$id");
+}
+
+
 
 main_execution_loop() {
 
@@ -1113,6 +1156,10 @@ main_execution_loop() {
 				;;
 			(host|sudo-host|su|sudo-su|"[")
 				command_fork;
+				current_command_rc=$?;
+				;;
+			(make-command-fail)
+				command_make_command_fail;
 				current_command_rc=$?;
 				;;
 			(true)
@@ -1303,6 +1350,7 @@ begin_root_kernel() {
 	done;
 
 	((opt_p)) && echo @opt_p;
+	((opt_i)) && echo @opt_i;
 	((opt_fake_su)) && echo @fake_su;
 
 	echo @@rrssh_id;
@@ -1313,21 +1361,6 @@ begin_root_kernel() {
 	dump_bin <<<"0";
 	
 	echo @end_of_header;
-}
-
-command_check() {
-	((toplevel_commands_provided)) || {
-		1>&2 echo "You must provide a rrssh script.";
-		return 1;
-	};
-
-	run_root_kernel_mode scan;
-}
-
-command_run() {
-	command_check || return 1;
-
-	run_root_kernel_mode run;
 }
 
 run_root_kernel_mode() {
@@ -1404,6 +1437,21 @@ run_root_kernel_mode() {
 		1>&2 echo "PROBLEM: The root subkernel did not end blissfully";
 		return 1;
 	fi;
+}
+
+command_check() {
+	((toplevel_commands_provided)) || {
+		1>&2 echo "You must provide a rrssh script.";
+		return 1;
+	};
+
+	run_root_kernel_mode scan;
+}
+
+command_run() {
+	command_check || return 1;
+
+	run_root_kernel_mode run;
 }
 
 main() {
