@@ -108,23 +108,17 @@ OPTIONS
 
 		Read the description of the command "print".
 
-OPTIONS USED BY RRSSH'S TEST SUITE
+EXECUTION
 
-	--make-command-fail <id>
-
-		Do not use this.  This is intended for the test suite.  Makes
-		a command fail to validate the behavior of the error paths.
-
-	--fake-su
-
-		Do not use this.  This is intended for the test suite.  Make
-		the su commands not really attempt to switch user to prevent
-		passwords from breaking the test suite.
+	A rrssh script is usually made of scopes [ ].  Unlike normal
+	shells, by default, any command "chain" that exits non-0 will stop
+	further execution of the scope and the scope will exit with non-0.
+	The -p option will make rrssh panic instead.  By default, any host
+	or su command that fails will trigger a panic unless the option -i
+	is used.  With -i, a failing host or su command will behave as if
+	its inner scope exited non-0.
 
 COMMANDS
-
-	In the following, square brackets [ ] may indicate optionnal
-	arguments or literal arguments to be provided to rrssh.
 
 	host <destination> [ <commands>... ]
 	sudo-host <destination> [ <commands>... ]
@@ -142,6 +136,10 @@ COMMANDS
 
 		TODO
 
+	[ <commands>... ]
+
+		TODO
+
 	command <system-command>
 	command [ <argv>... ]
 	--- <argv>... ---
@@ -153,6 +151,52 @@ COMMANDS
 
 		Do nothing, with success or failure.
 
+	print <text>
+
+		TODO
+
+	cd <path>
+	home
+	pushd <path>
+	popd
+
+		Change your current directory.
+
+	pwd
+
+		Print the current working directory.
+
+	take-file <path> <new-name> <dropdir>
+	take-dir <path> <new-name> <dropdir>
+
+		Bring a file or directory to a drop directory on the current
+		host, a parent host, or a future child host.  You can provide
+		a new name for the file or directory.  You can preserve the
+		current name by providing an empty argument as the name ("").
+
+	drop-dir <name> <path>
+
+		Indicate a drop directory (and its name) to receive files and
+		directories taken with take-file or take-dir.  The directory
+		must already be created.
+
+OPERATORS
+
+	TODO
+
+OPTIONS USED BY RRSSH'S TEST SUITE
+
+	--make-command-fail <id>
+
+		Do not use this.  This is intended for the test suite.  Makes
+		a command fail to validate the behavior of the error paths.
+
+	--fake-su
+
+		Do not use this.  This is intended for the test suite.  Make
+		the su commands not really attempt to switch user to prevent
+		passwords from breaking the test suite.
+
 COMMANDS USED BY RRSSH'S TEST SUITE
 
 	make-command-fail <id>
@@ -162,6 +206,13 @@ COMMANDS USED BY RRSSH'S TEST SUITE
 		This will be in effect only for the current scope and all
 		child scopes.
 
+EXAMPLES
+
+	TODO
+
+PROBLEMS
+
+	TODO
 
 HELP
 }
@@ -401,7 +452,7 @@ printferr() {
 }
 
 
-# do not call panic from inside a subshell
+# calling panic from inside a subshell will not cause rrssh to stop automatically!
 panic() {
 	printferr 'PANIC: %s PANIC\n' "$@";
 	echocom @panic;
@@ -559,6 +610,13 @@ load_eof_values() {
 
 
 
+# i dont trust bash hashes with user inputs.  therefore everything
+# relating to files and dirs is stored is different lists of equal
+# lengths at all times, where the same index in each list is a
+# different property of the same object.
+
+localhost_dropdirs_names=();
+localhost_dropdirs_paths=();
 
 
 
@@ -590,6 +648,95 @@ begin_basic_fork() {
 
 }
 
+
+
+handle_incoming_files_and_dirs() {
+	local header=$1; # the @@@@ line
+	local is_local=$2; # 1 = file system. 0 = stdin.
+	local dest_drop_dir=$3;
+	local dest_path=$4;
+	local local_source_path=$5; # only provided for local source
+
+	local temp_holder=$(mktemp);
+	if ((is_local)); then
+		cat -- "$local_source_path";
+	else
+		read_bin;
+	fi > "$temp_holder";
+
+	
+
+
+	# TODO: optimize everything
+
+
+
+	if ! ((is_root_kernel)); then
+		echo "$header";
+		dump_bin <<<"$dest_drop_dir";
+		dump_bin <<<"$dest_path";
+		dump_bin < "$temp_holder";
+	fi;
+
+	rm -f "$temp_holder";
+
+}
+
+handle_incoming_files_and_dirs_in_stream() {
+	local line;
+	while IFS="" read -r line || [ -n "$line" ]; do
+		case "$line" in
+			(@@@@*)
+				echo "$line";
+				read_bin | dump_bin;
+				read_bin | dump_bin;
+				read_bin | dump_bin;
+				;;
+			(@@@@file|@@@@dir)
+				# handle_incoming_files_and_dirs "$line" 0 "$(read_bin)" "$(read_bin)";
+				true;
+				;;
+			(@@@*)
+				echo "$line";
+				read_bin | dump_bin;
+				read_bin | dump_bin;
+				;;
+			(@@*)
+				echo "$line";
+				read_bin | dump_bin;
+				;;
+			(@*)
+				echo "$line";
+				;;			
+			(*)
+				# error "handle_incoming_files_and_dirs: Unknown message '$line'.  Panic.";
+				echo @panic;
+				;;
+		esac;
+	done;
+}
+
+
+
+# in a huge pipe line of many commands that communicate with our
+# protocol by sending messages to their fd 1 (next command in pipe
+# line) or fd 3, we must avoid the situation where multiple sections
+# of the pipe line tries to write messages to fd 3 (our parent
+# kernel).  multiple writes are not atomic, therefore the protocol
+# breaks because it breaks the flow of @header followed by its
+# arguments if an other command begins to write a message while the
+# previous message is not completed.
+
+# the easiest way to enforce protection of the protocol is that only
+# one command in a pipe line is "priviledged" to write to fd 3, the
+# others must write to their fd 1 or in temp files that can be managed
+# at the appropriate time.  i dont want to "automate" the handling of
+# fd 3 with lock files, it's probably asking for problems or risking a
+# deadlock.
+
+# THEREFORE generic_message_handler will be that priviledged function,
+# so it goes at the end of a pipe line.
+
 generic_message_handler() {
 	# we cannot handle panic because we will always be inside a
 	# subshell.  therefore we must forward the panic, which is also
@@ -601,6 +748,7 @@ generic_message_handler() {
 
 	local line;
 	while IFS="" read -r line || [ -n "$line" ]; do
+		# debug "GENERIC $rrssh_fork_depth: $line";
 		case "$line" in
 			(@@print_stdout)
 				read_bin | send_to_stdout;
@@ -617,6 +765,23 @@ generic_message_handler() {
 			(@@exitcode)
 				echocom @@exitcode;
 				read_bin | dump_bin 1>&3;
+				;;
+			(@@@@*)
+				if ! ((is_root_kernel)); then
+					echocom "$line";
+					read_bin | dump_bin 1>&3;
+					read_bin | dump_bin 1>&3;
+					read_bin | dump_bin 1>&3;
+				else
+					read_bin | dump_bin > /dev/null;
+					read_bin | dump_bin > /dev/null;
+					read_bin | dump_bin > /dev/null;
+				fi;
+				;;
+			(@@@*)
+				echo "$line";
+				read_bin | dump_bin;
+				read_bin | dump_bin;
 				;;
 			(@@*)
 				echo "$line";
@@ -839,7 +1004,7 @@ command_fork() {
 		echo @end_of_header;
 
 		# TODO: append files and folders only if we are a host
-		# command.  hum, but there's not guarenty that the new user
+		# command.  hum, but there's no guarenty that the new user
 		# can read the previous user's kernel to retrive information.
 
 	) | (
@@ -931,17 +1096,20 @@ LANDING_SCRIPT
 
 	) | (
 
-		generic_message_handler;
-
-	) | (
-
 		# we handle file/folder transfers and other things here so
 		# that it happens simultaneously accross all hosts, and thus
 		# faster than one host at a time.  however we are in a
 		# subshell.  temp_com_file is for information that must be
 		# kept outside the subshell.
 
-		while IFS="" read -r line || [ -n "$line" ]; do
+		handle_incoming_files_and_dirs_in_stream;
+
+	) | (
+
+		generic_message_handler;
+		exit $?;
+
+		while false IFS="" read -r line || [ -n "$line" ]; do
 			case "$line" in
 				(@panic)
 					echo @panic;
@@ -1090,7 +1258,7 @@ LANDING_SCRIPT
 		# as pre-execution analysis.
 
 		if ((scope_exitcode == 0)); then
-			panic "The amount of token consumed during scope analysis is not equal as when executed.  scan: $total_scope_args_shift. execution: $execution_total_args_shift";
+			panic "The amount of token consumed during scope analysis is not equal as when executed.  scan: $total_scope_args_shift. execution: $execution_total_args_shift. bliss: $bliss_received. ";
 		fi;
 	};
 	shift_toplevel_args "$total_scope_args_shift";
@@ -1120,6 +1288,83 @@ command_make_command_fail() {
 	make_command_fail_ids+=("$id");
 }
 
+
+
+
+
+command_drop_dir() {
+	shift_toplevel_args;
+
+	any_toplevel_args_remaining || {
+		panic "The command 'drop-dir' needs 2 arguments.";
+	};
+	local drop_dir_name=$(peek_toplevel_args);
+	shift_toplevel_args;
+
+	any_toplevel_args_remaining || {
+		panic "The command 'drop-dir' needs 2 arguments.";
+	};
+	local drop_dir_path=$(peek_toplevel_args);
+	shift_toplevel_args;
+
+	current_command_must_run_p || return 0;
+
+
+}
+
+
+
+
+command_take__file() {
+	local source_path=$1;
+	local dest_path=$2;
+	local dest_drop_dir=$3;
+
+	current_command_must_run_p || return 0;
+
+	# TODO: read the output of generic_message_handler and
+	# handle, in our current shell, @panic or other important
+	# messages.
+
+	(
+		handle_incoming_files_and_dirs @@@@file 1 "$dest_drop_dir" "$dest_path" "$source_path";
+	) | generic_message_handler;
+
+}
+
+command_take() {
+	local arg0=$(peek_toplevel_args);
+	shift_toplevel_args;
+
+	any_toplevel_args_remaining || {
+		panic "The command take needs 3 arguments.";
+	};
+	local obj_path=$(peek_toplevel_args);
+	shift_toplevel_args;
+
+	any_toplevel_args_remaining || {
+		panic "The command take needs 3 arguments.";
+	};
+	local dest_path=$(peek_toplevel_args);
+	shift_toplevel_args;
+
+	any_toplevel_args_remaining || {
+		panic "The command take needs 3 arguments.";
+	};
+	local dest_drop_dir=$(peek_toplevel_args);
+	shift_toplevel_args;
+
+
+
+    case "$arg0" in
+		(take-file)
+			command_take__file "$obj_path" "$dest_path" "$dest_drop_dir";
+			;;
+		(take-dir)
+			true;
+			;;
+	esac;
+}
 
 
 main_execution_loop() {
@@ -1186,16 +1431,29 @@ main_execution_loop() {
 				shift_toplevel_args;
 				current_command_rc=1;
 				;;
+			(take-file|take-dir)
+				command_take;
+				current_command_rc=$?;
+				;;
 			(debug)
 				shift_toplevel_args;
 				if current_command_must_run_p; then
 					echoout "ASDF";
 				fi;
 				;;
+			(delim)
+				shift_toplevel_args;
+				if current_command_must_run_p; then
+					echoout "====";
+				fi;
+				;;
+			(pwd)
+				shift_toplevel_args;
+				if current_command_must_run_p; then
+					pwd | send_to_stdout;
+				fi;
+				;;
 			(*)
-				# TODO: check whether this is the token that closes
-				# our current scope.
-
 				echocom @@exitcode;
 				dump_bin <<<"1" 1>&3;
 				panic "Invalid rrssh command: '$current_toplevel_command'.";
