@@ -1289,6 +1289,55 @@ command_make_command_fail() {
 }
 
 
+command_cd() {
+	local arg0=$(peek_toplevel_args);
+	shift_toplevel_args;
+
+	local path;
+	case "$arg0" in
+		(cd|pushd)
+			any_toplevel_args_remaining || {
+				panic "The command '$arg0' needs 1 argument.";
+			};
+			path=$(peek_toplevel_args);
+			shift_toplevel_args;
+			;;
+	esac;
+
+	current_command_must_run_p || return 0;
+
+	case "$arg0" in
+		(cd)
+			cd -- "$path" || {
+				error "Could not cd to '$path'.";
+				return 1;
+			};
+			return 0;
+			;;
+		(home)
+			cd || {
+				error "Could not cd to home directory.";
+				return 1;
+			};
+			return 0;
+			;;
+		(pushd)
+			pushd -- "$path" || {
+				error "Could not pushd to '$path'.";
+				return 1;
+			};
+			return 0;
+			;;
+		(popd)
+			popd || {
+				error "Could not popd.";
+				return 1;
+			};
+			return 0;
+			;;
+	esac;
+
+}
 
 
 
@@ -1430,6 +1479,10 @@ main_execution_loop() {
 			(false)
 				shift_toplevel_args;
 				current_command_rc=1;
+				;;
+			(cd|home|pushd|popd)
+				command_cd;
+				current_command_rc=$?;
 				;;
 			(take-file|take-dir)
 				command_take;
