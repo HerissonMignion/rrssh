@@ -425,6 +425,9 @@ KERNEL
 echocom() {
 	echo "$@" 1>&3;
 }
+pipeline_echocom() {
+	echo "$@";
+}
 
 echocom @kernel_start;
 
@@ -437,11 +440,27 @@ send_to_stderr() {
 	dump_bin 1>&3;
 }
 
+pipeline_send_to_stdout() {
+	echo @@print_stdout;
+	dump_bin;
+}
+pipeline_send_to_stderr() {
+	echo @@print_stderr;
+	dump_bin;
+}
+
 echoout() {
 	echo "$@" | send_to_stdout;
 }
 printfout() {
 	printf "$@" | send_to_stdout;
+}
+
+pipeline_echoout() {
+	echo "$@" | pipeline_send_to_stdout;
+}
+pipeline_printfout() {
+	printf "$@" | pipeline_send_to_stdout;
 }
 
 echoerr() {
@@ -451,6 +470,13 @@ printferr() {
 	printf "$@" | send_to_stderr;
 }
 
+pipeline_echoerr() {
+	echo "$@" | pipeline_send_to_stderr;
+}
+pipeline_printferr() {
+	printf "$@" | pipeline_send_to_stderr;
+}
+
 
 # calling panic from inside a subshell will not cause rrssh to stop automatically!
 panic() {
@@ -458,14 +484,24 @@ panic() {
 	echocom @panic;
 	exit 1;
 }
-
 error() {
 	printferr 'ERROR: %s ERROR\n' "$@";
 }
-
 debug() {
 	true || return 0;
 	printferr 'DEBUG: %s DEBUG\n' "$@";
+}
+
+pipeline_panic() {
+	pipeline_printferr 'PANIC: %s PANIC\n' "$@";
+	pipeline_echocom @panic;
+	exit 1;
+}
+pipeline_error() {
+	pipeline_printferr 'ERROR: %s ERROR\n' "$@";
+}
+pipeline_debug() {
+	pipeline_printferr 'DEBUG: %s DEBUG\n' "$@";
 }
 
 
@@ -615,6 +651,9 @@ load_eof_values() {
 # lengths at all times, where the same index in each list is a
 # different property of the same object.
 
+# we try to save everything as absolute paths, because we want to let
+# the user change directories.
+
 localhost_dropdirs_names=();
 localhost_dropdirs_paths=();
 
@@ -650,12 +689,73 @@ begin_basic_fork() {
 
 
 
+
+sanitize_path() {
+	local ret=$1;
+	# MAYBE TODO: write this "correctly" with temp variables.
+	local i;
+	for ((i = 0; i < 20; i++)); do
+		ret=${ret//"//"/"/"};
+	done;
+	ret=${ret%/};
+	ret=${ret%/};
+	ret=${ret%/};
+	[ -z "$ret" ] && ret=/;
+	printf %s\\n "$ret";
+}
+
+# the parent directory must exist because we just use pwd to do the
+# job.  i wrote this function because i've seen systems that dont have
+# this command.	
+bash_realpath() {
+	local input_path=$(sanitize_path "$1");
+	if [ "$input_path" == / ]; then
+		echo /;
+		return 0;
+	fi;
+	local basename="${input_path##*/}";
+	local dirname="${input_path%/*}";
+	[ "$dirname" == "$input_path" ] && dirname=.;
+	(
+		cd -- "$dirname" || exit 1;
+		printf %s\\n "$(pwd)/$basename";
+	);
+}
+
+
+
+validate_drop_item_name() {
+	local name=$1;
+	case "$name" in
+		# no technical reason to disallow square brackets but disallow
+		# anyway.
+		(""|.|..|"["|"]")
+			return 1;
+			;;
+	esac;
+
+	# slashes are disallowed.  we dont handle relatives paths for
+	# destinations.
+	local subst=${name//"/"/_};
+	[ "$name" == "$subst" ] || return 1;
+
+	return 0;
+}
+
 handle_incoming_files_and_dirs() {
 	local header=$1; # the @@@@ line
 	local is_local=$2; # 1 = file system. 0 = stdin.
-	local dest_drop_dir=$3;
-	local dest_path=$4;
+	local dest_dropdir=$3;
+	local dest_name=$4;
 	local local_source_path=$5; # only provided for local source
+
+	validate_drop_item_name "$dest_name" || {
+		pipeline_panic "Invalid destination name '$dest_name'.";
+	};
+
+	# TODO: optimize everything
+
+	# TODO: secure everything
 
 	local temp_holder=$(mktemp);
 	if ((is_local)); then
@@ -664,17 +764,31 @@ handle_incoming_files_and_dirs() {
 		read_bin;
 	fi > "$temp_holder";
 
-	
 
+	local i;
+	for ((i = 0; i < ${#localhost_dropdirs_names[@]}; i++)); do
+		if [ "${localhost_dropdirs_names[i]}" == "$dest_dropdir" ]; then
+			(
+				cd -- "${localhost_dropdirs_paths[i]}" || {
+					rm -f "$temp_holder";
+					pipeline_panic "Could not cd to dropdir '${localhost_dropdirs_paths[i]}'.";
+				};
 
-	# TODO: optimize everything
+				if [ "$header" == @@@@file ]; then
+					tee -- "$dest_name" < "$temp_holder" &> /dev/null || {
+						rm -f "$temp_holder";
+						pipeline_panic "Could not write into file '$dest_name'.";
+					};
+				fi;
 
-
+			) || return 1;
+		fi;
+	done;
 
 	if ! ((is_root_kernel)); then
 		echo "$header";
-		dump_bin <<<"$dest_drop_dir";
-		dump_bin <<<"$dest_path";
+		dump_bin <<<"$dest_dropdir";
+		dump_bin <<<"$dest_name";
 		dump_bin < "$temp_holder";
 	fi;
 
@@ -686,15 +800,8 @@ handle_incoming_files_and_dirs_in_stream() {
 	local line;
 	while IFS="" read -r line || [ -n "$line" ]; do
 		case "$line" in
-			(@@@@*)
-				echo "$line";
-				read_bin | dump_bin;
-				read_bin | dump_bin;
-				read_bin | dump_bin;
-				;;
 			(@@@@file|@@@@dir)
-				# handle_incoming_files_and_dirs "$line" 0 "$(read_bin)" "$(read_bin)";
-				true;
+				handle_incoming_files_and_dirs "$line" 0 "$(read_bin)" "$(read_bin)";
 				;;
 			(@@@*)
 				echo "$line";
@@ -1347,39 +1454,33 @@ command_drop_dir() {
 	any_toplevel_args_remaining || {
 		panic "The command 'drop-dir' needs 2 arguments.";
 	};
-	local drop_dir_name=$(peek_toplevel_args);
+	local dropdir_name=$(peek_toplevel_args);
 	shift_toplevel_args;
 
 	any_toplevel_args_remaining || {
 		panic "The command 'drop-dir' needs 2 arguments.";
 	};
-	local drop_dir_path=$(peek_toplevel_args);
+	local dropdir_path=$(peek_toplevel_args);
 	shift_toplevel_args;
 
 	current_command_must_run_p || return 0;
 
 
-}
+	local absolute_path;
+	absolute_path=$(cd -- "$dropdir_path" && pwd) || {
+		panic "The drop directory '$dropdir_name' at location '$dropdir_path' does not exist, or we don't have access.";
+	};
 
+	localhost_dropdirs_names+=("$dropdir_name");
+	localhost_dropdirs_paths+=("$dropdir_path");
 
-
-
-command_take__file() {
-	local source_path=$1;
-	local dest_path=$2;
-	local dest_drop_dir=$3;
-
-	current_command_must_run_p || return 0;
-
-	# TODO: read the output of generic_message_handler and
-	# handle, in our current shell, @panic or other important
-	# messages.
-
-	(
-		handle_incoming_files_and_dirs @@@@file 1 "$dest_drop_dir" "$dest_path" "$source_path";
-	) | generic_message_handler;
+	# TODO: verify objects received from previous kernels or objects
+	# previously taken on the current kernel.
 
 }
+
+
+
 
 command_take() {
 	local arg0=$(peek_toplevel_args);
@@ -1394,25 +1495,48 @@ command_take() {
 	any_toplevel_args_remaining || {
 		panic "The command take needs 3 arguments.";
 	};
-	local dest_path=$(peek_toplevel_args);
+	local dest_name=$(peek_toplevel_args);
 	shift_toplevel_args;
 
 	any_toplevel_args_remaining || {
 		panic "The command take needs 3 arguments.";
 	};
-	local dest_drop_dir=$(peek_toplevel_args);
+	local dest_dropdir=$(peek_toplevel_args);
 	shift_toplevel_args;
 
+	[ -z "$dest_name" ] && dest_name=$(basename "$obj_path");
+	validate_drop_item_name "$dest_name" || {
+		panic "Invalid destination name '$dest_name'.";
+	};
+	[ -n "$obj_path" ] || {
+		panic "The source path for the $arg0 command cannot be an empty string.";
+	};
+
+	current_command_must_run_p || return 0;
 
 
+	local header_line="";
     case "$arg0" in
 		(take-file)
-			command_take__file "$obj_path" "$dest_path" "$dest_drop_dir";
+			header_line=@@@@file;
+			[ -f "$obj_path" ] || {
+				panic "The file '$obj_path' doesn't exist or is not a file.";
+			};
+			bash_realpath "$obj_path" |& send_to_stderr;
+			debug "$(bash_realpath "$obj_path")";
 			;;
 		(take-dir)
-			true;
+			return 1;
 			;;
 	esac;
+
+	# TODO: read the output of generic_message_handler and
+	# handle, in our current shell, @panic or other important
+	# messages.
+
+	(
+	    handle_incoming_files_and_dirs "$header_line" 1 "$dest_dropdir" "$dest_name" "$obj_path";
+	) | generic_message_handler;
 }
 
 
@@ -1482,6 +1606,10 @@ main_execution_loop() {
 				;;
 			(cd|home|pushd|popd)
 				command_cd;
+				current_command_rc=$?;
+				;;
+			(drop-dir)
+				command_drop_dir;
 				current_command_rc=$?;
 				;;
 			(take-file|take-dir)
