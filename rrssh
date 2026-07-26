@@ -422,7 +422,21 @@ HEAVY_OBJECTS_KERNEL_PATH=$KERNEL_PATH;
 # stdout for communication.  stderr for accidental garbage and trying
 # to raise a sigpipe.  stdout is moved to 3 to avoid accidental
 # garbage from breaking the protocol.
-exec 3>&1 1>&2;
+exec 3>&1 1>&2 5>&0 0< /dev/null;
+
+# 0 = /dev/null
+# 1 = garbage
+# 2 = garbage
+# 3 = protocol out (our initial stdout)
+# 4 = reserved for possible futur use
+# 5 = our stdin, from the parent kernel
+
+# 6 = subkernel's stdin
+# 7 = subkernel's protocol output (stdout)
+
+# IIRC, the bash manual says to not use numbers above 9.
+
+
 
 KERNEL
 
@@ -520,6 +534,21 @@ pipeline_debug() {
 
 
 
+mktemp_fifo() {
+	local temp_file;
+	temp_file=$(mktemp) || {
+		return 1;
+	};
+	rm -f -- "$temp_file" || {
+		return 1;
+	};
+	mkfifo -- "$temp_file" || {
+		return 1;
+	};
+	printf '%s\n' "$temp_file";
+}
+
+
 
 # the multiple "operation modes" of the kernel are for scanning or
 # other details without having to duplicate code.
@@ -556,6 +585,8 @@ is_root_kernel=0;
 # are we suposed to run only one command chain?
 is_one_command_chain_limit=0;
 
+# if we have stdin, then we have 2 way communication.
+opt_stdin=0;
 
 
 
@@ -572,6 +603,9 @@ while (($#)); do
 			;;
 		(--one-command-chain-limit)
 			is_one_command_chain_limit=1;
+			;;
+		(--stdin)
+			opt_stdin=1;
 			;;
 	esac;
 done;
@@ -1163,61 +1197,11 @@ command_fork() {
 
 
 
-	local temp_com_file=$(mktemp);
+	local subkernel_stdin=$(mktemp_fifo);
+	local subkernel_stdout=$(mktemp_fifo);
+
 	(
-		begin_basic_fork;
-
-
-
-		echo @@toplevel_scope_closing_token;
-		dump_bin <<<"]";
-
-		echo @@rrssh_host_depth;
-		dump_bin <<<$((rrssh_host_depth + 1));
-
-		echo @end_of_header;
-
-		# TODO: append files and folders only if we are a host
-		# command.  hum, but there's no guarenty that the new user
-		# can read the previous user's kernel to retrive information.
-
-		# TODO: make everything safer
-
-		for ((i = 0; i < ${#localhost_taken_types[@]}; i++)); do
-			case "${localhost_taken_types[i]}" in
-				(f)
-					echo @@@@file;
-					dump_bin <<<"${localhost_taken_dest_dropdirs[i]}";
-					dump_bin <<<"${localhost_taken_dest_names[i]}";
-					dump_bin < "${localhost_taken_source_paths[i]}";
-					;;
-				(d)
-					true;
-					;;
-			esac;
-		done;
-
-		{
-			skip_kernel;
-			skip_to_heavy_objects;
-			while IFS="" read -r line || [ -n "$line" ]; do
-				case "$line" in
-					(@@@@file|@@@@dir)
-						echo "$line";
-						read_bin | dump_bin;
-						read_bin | dump_bin;
-						read_bin | dump_bin;
-						;;
-					(@eof)
-						break;
-						;;
-				esac;
-			done;
-		} < "$KERNEL_PATH";
-
-		echo @eof;
-
-	) | (
+		exec 3>&- 5>&-;
 
 		print_landing_script() {
 
@@ -1304,7 +1288,70 @@ LANDING_SCRIPT
 		echo @@fork_command_rc;
 		dump_bin <<<"$fork_command_rc";
 
-	) | (
+	) 0< "$subkernel_stdin" 1> "$subkernel_stdout" &
+	exec 6> "$subkernel_stdin" 7< "$subkernel_stdout";
+
+
+	(
+		begin_basic_fork;
+
+
+
+		echo @@toplevel_scope_closing_token;
+		dump_bin <<<"]";
+
+		echo @@rrssh_host_depth;
+		dump_bin <<<$((rrssh_host_depth + 1));
+
+		echo @end_of_header;
+
+		# TODO: append files and folders only if we are a host
+		# command.  hum, but there's no guarenty that the new user
+		# can read the previous user's kernel to retrive information.
+
+		# TODO: make everything safer
+
+		for ((i = 0; i < ${#localhost_taken_types[@]}; i++)); do
+			case "${localhost_taken_types[i]}" in
+				(f)
+					echo @@@@file;
+					dump_bin <<<"${localhost_taken_dest_dropdirs[i]}";
+					dump_bin <<<"${localhost_taken_dest_names[i]}";
+					dump_bin < "${localhost_taken_source_paths[i]}";
+					;;
+				(d)
+					true;
+					;;
+			esac;
+		done;
+
+		{
+			skip_kernel;
+			skip_to_heavy_objects;
+			while IFS="" read -r line || [ -n "$line" ]; do
+				case "$line" in
+					(@@@@file|@@@@dir)
+						echo "$line";
+						read_bin | dump_bin;
+						read_bin | dump_bin;
+						read_bin | dump_bin;
+						;;
+					(@eof)
+						break;
+						;;
+				esac;
+			done;
+		} < "$KERNEL_PATH";
+
+		echo @eof;
+
+	) 1>&6;
+
+	exec 6>&-;
+
+
+	local temp_com_file=$(mktemp);
+	(
 
 		# we handle file/folder transfers and other things here so
 		# that it happens simultaneously accross all hosts, and thus
@@ -1314,35 +1361,15 @@ LANDING_SCRIPT
 
 		handle_incoming_files_and_dirs_in_stream;
 
-	) | (
+	) 0<&7 | (
 
 		generic_message_handler;
-		exit $?;
-
-		while false IFS="" read -r line || [ -n "$line" ]; do
-			case "$line" in
-				(@panic)
-					echo @panic;
-					;;
-				(@bliss)
-					echo @bliss;
-					;;
-				(@@*)
-					echo "$line";
-					read_bin | dump_bin;
-					;;
-				(@*)
-					echo "$line";
-					;;
-				(*)
-					error "Unknown message received from sub kernel: '$line'. PANIC";
-					echo @panic;
-					break;
-					;;
-			esac;
-		done;
 
 	) > "$temp_com_file";
+
+	exec 6>&- 7>&-;
+	rm -f -- "$subkernel_stdin";
+	rm -f -- "$subkernel_stdout";
 
 	# the landing process has its own "stream" of error messages other
 	# than "stdout" "stderr" so that we catch and print these messages
