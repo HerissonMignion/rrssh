@@ -15,6 +15,14 @@
 
 # TODO: améliorer l'anglais dans le message d'aide.
 
+# TODO: code coverage
+
+# TODO: différentes versions de bash
+
+# TODO: control c avec mkfifo
+
+# TODO: set-env unset-env
+
 
 help() {
 	cat <<"HELP";
@@ -405,6 +413,12 @@ print_kernel() {
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd);
 KERNEL_PATH=$SCRIPT_DIR/${0##*/};
 
+# for optimization purposes, files and directories may not be
+# duplicated to us to avoid wasting space.  we may be instructed to
+# take our objects from a different kernel on the same host.
+
+HEAVY_OBJECTS_KERNEL_PATH=$KERNEL_PATH;
+
 # stdout for communication.  stderr for accidental garbage and trying
 # to raise a sigpipe.  stdout is moved to 3 to avoid accidental
 # garbage from breaking the protocol.
@@ -599,14 +613,39 @@ skip_kernel() {
 		[ "$line" == "###;;;" ] && break;
 	done;
 }
+skip_to_heavy_objects() {
+	local line;
+	while IFS="" read -r line || [ -n "$line" ]; do
+		case "$line" in
+			(@end_of_header)
+				break;
+				;;
+			(@@*)
+				read_bin > /dev/null;
+				;;
+			(@*)
+				true;
+				;;
+		esac;
+	done;
+}
 load_eof_values() {
 	local object_type;
+	local eof_encountered=0;
 	{
 		skip_kernel;
 		while IFS="" read -r object_type || [ -n "$object_type" ]; do
 			case "$object_type" in
 				(@end_of_header)
 					break;
+					;;
+				(@@print_stdout)
+					echocom @@print_stdout;
+					read_bin | dump_bin 1>&3;
+					;;
+				(@@print_stderr)
+					echocom @@print_stderr;
+					read_bin | dump_bin 1>&3;
 					;;
 				(@@toplevel_arg)
 					toplevel_args+=("$(read_bin)");
@@ -640,7 +679,29 @@ load_eof_values() {
 					;;
 			esac;
 		done;
+		while IFS="" read -r object_type || [ -n "$object_type" ]; do
+			case "$object_type" in
+				(@eof)
+					eof_encountered=1;
+					break;
+					;;
+				(@@@@file|@@@@dir)
+					read_bin > /dev/null;
+					read_bin > /dev/null;
+					read_bin > /dev/null;
+					;;
+				(*)
+					panic "Unknown object in kernel dump: '$object_type'.";
+					;;
+			esac;
+		done;
 	} < "$KERNEL_PATH";
+
+	# this ensures that we dont run if the connection was broken
+	# during duplication.
+	if ! ((eof_encountered)); then
+		panic "The end of file token was not in the kernel dump.";
+	fi;
 }
 
 
@@ -656,6 +717,11 @@ load_eof_values() {
 
 localhost_dropdirs_names=();
 localhost_dropdirs_paths=();
+
+localhost_taken_dest_dropdirs=();
+localhost_taken_types=(); # either a string "f" or "d"
+localhost_taken_dest_names=();
+localhost_taken_source_paths=();
 
 
 
@@ -1059,6 +1125,7 @@ command_fork() {
 		dump_bin <<<$((rrssh_host_depth + 1));
 
 		echo @end_of_header;
+		echo @eof;
 	) > "$sub_analyser_kernel_path";
 	bash "$sub_analyser_kernel_path" -- --mode scan | generic_message_handler > "$analysis_output";
 	rm -f "$sub_analyser_kernel_path";
@@ -1113,6 +1180,42 @@ command_fork() {
 		# TODO: append files and folders only if we are a host
 		# command.  hum, but there's no guarenty that the new user
 		# can read the previous user's kernel to retrive information.
+
+		# TODO: make everything safer
+
+		for ((i = 0; i < ${#localhost_taken_types[@]}; i++)); do
+			case "${localhost_taken_types[i]}" in
+				(f)
+					echo @@@@file;
+					dump_bin <<<"${localhost_taken_dest_dropdirs[i]}";
+					dump_bin <<<"${localhost_taken_dest_names[i]}";
+					dump_bin < "${localhost_taken_source_paths[i]}";
+					;;
+				(d)
+					true;
+					;;
+			esac;
+		done;
+
+		{
+			skip_kernel;
+			skip_to_heavy_objects;
+			while IFS="" read -r line || [ -n "$line" ]; do
+				case "$line" in
+					(@@@@file|@@@@dir)
+						echo "$line";
+						read_bin | dump_bin;
+						read_bin | dump_bin;
+						read_bin | dump_bin;
+						;;
+					(@eof)
+						break;
+						;;
+				esac;
+			done;
+		} < "$KERNEL_PATH";
+
+		echo @eof;
 
 	) | (
 
@@ -1477,6 +1580,43 @@ command_drop_dir() {
 	# TODO: verify objects received from previous kernels or objects
 	# previously taken on the current kernel.
 
+	# TODO: make safer
+
+	local line;
+	local current_obj_dest_dropdir;
+	local current_obj_dest_name;
+	{
+		skip_kernel;
+		skip_to_heavy_objects;
+
+		while IFS="" read -r line || [ -n "$line" ]; do
+			case "$line" in
+				(@@@@file)
+						current_obj_dest_dropdir=$(read_bin);
+						current_obj_dest_name=$(read_bin);
+						if [ "$current_obj_dest_dropdir" == "$dropdir_name" ]; then
+							touch "$absolute_path/$current_obj_dest_name" || {
+								panic "Could not create file: '$absolute_path/$current_obj_dest_name'.";
+							};
+							read_bin > "$absolute_path/$current_obj_dest_name";
+						else
+							read_bin > /dev/null;
+						fi;
+					;;
+				(@@@@dir)
+					true;
+					;;
+				(@eof)
+					break;
+					;;
+				(*)
+					panic "Unknown object '$line' in kernel.";
+					;;
+			esac;
+		done;
+
+	} < "$HEAVY_OBJECTS_KERNEL_PATH";
+
 }
 
 
@@ -1522,8 +1662,11 @@ command_take() {
 			[ -f "$obj_path" ] || {
 				panic "The file '$obj_path' doesn't exist or is not a file.";
 			};
-			bash_realpath "$obj_path" |& send_to_stderr;
-			debug "$(bash_realpath "$obj_path")";
+			# debug "$(bash_realpath "$obj_path")";
+			localhost_taken_types+=("f");
+			localhost_taken_dest_dropdirs+=("$dest_dropdir");
+			localhost_taken_dest_names+=("$dest_name");
+			localhost_taken_source_paths+=("$(bash_realpath "$obj_path")");
 			;;
 		(take-dir)
 			return 1;
@@ -1825,6 +1968,7 @@ run_root_kernel_mode() {
 	(
 
 		begin_root_kernel;
+		echo @eof;
 
 	) > "$temp_kernel_path";
 	local temp_com_file=$(mktemp);
