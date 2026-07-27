@@ -404,6 +404,20 @@ read_bin() {
 }
 
 
+mktemp_fifo() {
+	local temp_file;
+	temp_file=$(mktemp) || {
+		return 1;
+	};
+	rm -f -- "$temp_file" || {
+		return 1;
+	};
+	mkfifo -- "$temp_file" || {
+		return 1;
+	};
+	printf '%s\n' "$temp_file";
+}
+
 print_kernel() {
 	cat <<"KERNEL";
 #!/bin/bash
@@ -446,6 +460,7 @@ KERNEL
 	declare -f read_bin;
 	declare -f print_kernel;
 	declare -f testable;
+	declare -f mktemp_fifo;
 
 	cat <<"KERNEL";
 
@@ -534,19 +549,6 @@ pipeline_debug() {
 
 
 
-mktemp_fifo() {
-	local temp_file;
-	temp_file=$(mktemp) || {
-		return 1;
-	};
-	rm -f -- "$temp_file" || {
-		return 1;
-	};
-	mkfifo -- "$temp_file" || {
-		return 1;
-	};
-	printf '%s\n' "$temp_file";
-}
 
 
 
@@ -611,6 +613,37 @@ while (($#)); do
 done;
 unset arg;
 
+
+# checks whether any parent kernels wants to trigger the panic
+# mecanism.  do not call from inside a subshell, we don't have
+# guarentee that we are the only one reading our kernel's stdin, and
+# we use fd 3.
+
+# returns true if we must panic
+epoll_panic() {
+	((opt_stdin)) || return 1;
+	[ "$op_mode" == scan ] && return 1;
+	[ "$op_mode" == walk ] && return 1;
+
+	echocom @epoll_panic;
+	local line;
+	while IFS="" read -r line || [ -n "$line" ]; do
+		case "$line" in
+			(@continue)
+				return 1;
+				break;
+				;;
+			(*)
+				return 0;
+				break;
+				;;
+		esac;
+		break;
+	done 0<&5;
+}
+epoll_panic && {
+	panic "epoll indicated to panic.";
+};
 
 
 # if we are not the root kernel, then this is the token that's gonna
@@ -954,6 +987,7 @@ generic_message_handler() {
 	# doesn't support.
 
 	local line;
+	local subline;
 	while IFS="" read -r line || [ -n "$line" ]; do
 		# debug "GENERIC $rrssh_fork_depth: $line";
 		case "$line" in
@@ -972,6 +1006,33 @@ generic_message_handler() {
 			(@@exitcode)
 				echocom @@exitcode;
 				read_bin | dump_bin 1>&3;
+				;;
+			(@epoll_panic)
+				# this message should only be received from a
+				# subkernel, therefore we have fd 6.
+				if ((opt_stdin)); then
+					echocom @epoll_panic;
+					while IFS="" read -r subline || [ -n "$subline" ]; do
+						case "$subline" in
+							(@panic)
+								echo @panic 1>&6;
+								break;
+								;;
+							(@continue)
+								echo @continue 1>&6;
+								break;
+								;;
+							(*)
+								error "Unknown message '$subline' received from parent. Panic.";
+								echo @panic 1>&6;
+								break;
+								;;
+						esac;
+						break;
+					done 0<&5;
+				else
+					echo @continue 1>&6;
+				fi;
 				;;
 			(@@@@*)
 				if ! ((is_root_kernel)); then
@@ -1219,6 +1280,8 @@ make_command_fail_ids=($(printf "%q " "${make_command_fail_ids[@]}"));
 LANDING_SCRIPT
 
 			declare -f dump_bin;
+			declare -f read_line;
+			declare -f read_bin;
 			declare -f testable;
 
 			cat <<"LANDING_SCRIPT";
@@ -1252,11 +1315,13 @@ kernel_file_path=$(testable id_nuirhienvfh mktemp) || {
 	exit 1;
 };
 
-testable id_fdhv9qh5gf tee "$kernel_file_path" &> /dev/null || {
+read_bin | testable id_fdhv9qh5gf tee "$kernel_file_path" &> /dev/null || {
 	printf_landing_err "tee failed.  Could not dump contents to the temporary file meant to hold the sub kernel."
 	rm -f "$kernel_file_path";
 	exit 1;
 };
+
+
 
 testable id_asudhfisuh bash "$kernel_file_path" -- "${call_args[@]}";
 rm -f "$kernel_file_path";
@@ -1282,7 +1347,7 @@ LANDING_SCRIPT
 			cmd+=(bash -c);
 		fi;
 
-		"${cmd[@]}" "bash -c $(printf %q "$(print_landing_script --mode run)")";
+		"${cmd[@]}" "bash -c $(printf %q "$(print_landing_script --mode run --stdin)")";
 		fork_command_rc=$?;
 
 		echo @@fork_command_rc;
@@ -1345,9 +1410,7 @@ LANDING_SCRIPT
 
 		echo @eof;
 
-	) 1>&6;
-
-	exec 6>&-;
+	) | dump_bin 1>&6;
 
 
 	local temp_com_file=$(mktemp);
@@ -1727,6 +1790,10 @@ main_execution_loop() {
 		current_command_reverse_rc=0;
 		operator_used=0;
 
+		epoll_panic && {
+			panic "epoll_panic indicated to panic.";
+		};
+
 		if ((is_first_command_of_chain)); then
 			# TODO: consume scope closing token only if parent indicated to do so.
 			if [ "$(peek_toplevel_args)" == "$toplevel_scope_closing_token" ]; then
@@ -1999,36 +2066,103 @@ run_root_kernel_mode() {
 
 	) > "$temp_kernel_path";
 	local temp_com_file=$(mktemp);
-	bash "$temp_kernel_path" -- --mode "$mode" --root 2> /dev/null | (
-		while IFS="" read -r line || [ -n "$line" ]; do
-			case "$line" in
-				(@@print_stdout)
-					read_bin;
-					;;
-				(@@print_stderr)
-					read_bin 1>&2;
-					;;
-				(@bliss)
-					echo @bliss >> "$temp_com_file";
-					;;
-				(@@exitcode)
-					echo @@exitcode >> "$temp_com_file";
-					read_bin | dump_bin >> "$temp_com_file";
-					;;
-				(@panic)
-					echo @panic >> "$temp_com_file";
-					;;
-				(@kernel_start)
-					true; # we do nothing
-					;;
-				(*)
-					1>&2 echo "Unknown object in kernel output: $line";
-					# MAYBE TODO: throw a real error?
-					;;
-			esac;
+	local rootkernel_stdin=$(mktemp_fifo);
+	local rootkernel_stdout=$(mktemp_fifo);
+	(
+		trap_cmd() {
+			echo @panic > "$rootkernel_stdin";
+			echo @panic > "$rootkernel_stdin";
+			echo @panic > "$rootkernel_stdin";
+			echo @panic > "$rootkernel_stdin";
+		}
+		# trap "trap_cmd;" SIGTERM SIGKILL SIGINT SIGQUIT;
+
+		bash "$temp_kernel_path" -- --mode "$mode" --root --stdin 2> /dev/null;
+	) 0< "$rootkernel_stdin" 1> "$rootkernel_stdout" &
+	exec 6> "$rootkernel_stdin" 7< "$rootkernel_stdout";
+	
+	(
+		# TODO: improve traps.
+
+		must_panic=0;
+
+		first_loop=1;
+		restart_loop=0;
+		trap_ran=0;
+
+		trap_cmd() {
+			trap_ran=1;
+			local i;
+			# ensure that we send @panic even if we desync with the
+			# messages and dont catch the @epoll_panic.
+			for ((i = 0; i < 10; i++)); do
+				echo @panic;
+			done 1>&6;
+			must_panic=1;
+			1>&2 echo;
+			1>&2 echo "Triggering panic at earliest opportunity.";
+			1>&2 echo;
+		}
+
+		# trap "trap_cmd;" SIGTERM SIGKILL SIGINT SIGQUIT;
+		trap "echo TERM; trap_cmd;" SIGTERM;
+		trap "echo KILL; trap_cmd;" SIGKILL;
+		trap "echo INT; trap_cmd;" SIGINT;
+		trap "echo QUIT; trap_cmd;" SIGQUiT;
+
+
+
+		while ((first_loop)) || ((restart_loop)); do
+			first_loop=0;
+			restart_loop=0;
+			while IFS="" read -r line || [ -n "$line" ]; do
+				case "$line" in
+					(@@print_stdout)
+						read_bin;
+						;;
+					(@@print_stderr)
+						read_bin 1>&2;
+						;;
+					(@bliss)
+						if ! ((must_panic)); then
+							echo @bliss >> "$temp_com_file";
+						else
+							echo @panic >> "$temp_com_file";
+						fi;
+						;;
+					(@@exitcode)
+						echo @@exitcode >> "$temp_com_file";
+						read_bin | dump_bin >> "$temp_com_file";
+						;;
+					(@panic)
+						echo @panic >> "$temp_com_file";
+						;;
+					(@epoll_panic)
+						if ! ((must_panic)); then
+							echo @continue 1>&6;
+						else
+							echo @panic 1>&6;
+						fi;
+						;;
+					(@kernel_start)
+						true; # we do nothing
+						;;
+					(*)
+						1>&2 echo "Unknown object in kernel output: $line";
+						# MAYBE TODO: throw a real error?
+						;;
+				esac;
+			done;
+			if ((trap_ran)); then
+				trap_ran=0;
+				restart_loop=1;
+			fi;
 		done;
-	);
+	) 0< "$rootkernel_stdout" 7<&-;
+	exec 6>&- 7<&-;
 	rm -f "$temp_kernel_path";
+	rm -f "$rootkernel_stdin";
+	rm -f "$rootkernel_stdout";
 
 	local exitcode_received=0;
 	local exitcode=0;
