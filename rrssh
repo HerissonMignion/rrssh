@@ -741,6 +741,22 @@ load_eof_values() {
 				(@@make_command_fail_id)
 					make_command_fail_ids+=("$(read_bin)");
 					;;
+				(@@@@@take_obj)
+					localhost_taken_dest_dropdirs+=("$(read_bin)");
+					localhost_taken_types+=("$(read_bin)");
+					localhost_taken_dest_names+=("$(read_bin)");
+					localhost_taken_source_paths+=("$(read_bin)");
+					;;
+				(@@heavy_objects_kernel_path)
+					HEAVY_OBJECTS_KERNEL_PATH=$(read_bin);
+					;;
+				(@@add_dropdir)
+					localhost_dropdirs_names+=("$(read_bin)");
+					localhost_dropdirs_paths+=("$(read_bin)");
+					;;
+				(@@parent_dropdir)
+					parents_dropdirs+=("$(read_bin)");
+					;;
 				(*)
 					panic "Unknown object in kernel dump: '$object_type'.";
 					;;
@@ -789,6 +805,29 @@ localhost_taken_dest_dropdirs=();
 localhost_taken_types=(); # either a string "f" or "d"
 localhost_taken_dest_names=();
 localhost_taken_source_paths=();
+
+
+
+
+
+# drop directory names used by all our parents.  used to know whether
+# we need to send files and dirs upward.  dupplicates in this list are
+# not a concern.
+
+parents_dropdirs=();
+
+
+# indicates whether $1 is in the list, provided by all the trailing
+# arguments.
+is_item_in_list() {
+	local item=$1;
+	shift;
+	local arg;
+	for arg in "$@"; do
+		[ "$arg" == "$item" ] && return 0;
+	done;
+	return 1;
+}
 
 
 
@@ -890,6 +929,31 @@ handle_incoming_files_and_dirs() {
 
 	# TODO: secure everything
 
+	# if this kernel doesn't need the object, send straigt to parent
+	# without using the disk.
+
+	if ! is_item_in_list "$dest_dropdir" "${localhost_dropdirs_names[@]}"; then
+		# still make sure that parents actually need the object
+		if is_item_in_list "$dest_dropdir" "${parents_dropdirs[@]}"; then
+			# TODO: handle directories
+
+			echo "$header";
+			dump_bin <<<"$dest_dropdir";
+			dump_bin <<<"$dest_name";
+			if ((is_local)); then
+				dump_bin < "$local_source_path";
+			else
+				read_bin | dump_bin;
+			fi;
+			
+		else
+			if ! ((is_local)); then
+				read_bin > /dev/null;
+			fi;
+		fi;
+		return 0;
+	fi;
+
 	local temp_holder=$(mktemp);
 	if ((is_local)); then
 		cat -- "$local_source_path";
@@ -919,10 +983,13 @@ handle_incoming_files_and_dirs() {
 	done;
 
 	if ! ((is_root_kernel)); then
-		echo "$header";
-		dump_bin <<<"$dest_dropdir";
-		dump_bin <<<"$dest_name";
-		dump_bin < "$temp_holder";
+		# send to parent only if parent needs it.
+		if is_item_in_list "$dest_dropdir" "${parents_dropdirs[@]}"; then
+			echo "$header";
+			dump_bin <<<"$dest_dropdir";
+			dump_bin <<<"$dest_name";
+			dump_bin < "$temp_holder";
+		fi;
 	fi;
 
 	rm -f "$temp_holder";
@@ -1034,7 +1101,7 @@ generic_message_handler() {
 					echo @continue 1>&6;
 				fi;
 				;;
-			(@@@@*)
+			(@@@@file|@@@@dir)
 				if ! ((is_root_kernel)); then
 					echocom "$line";
 					read_bin | dump_bin 1>&3;
@@ -1045,6 +1112,12 @@ generic_message_handler() {
 					read_bin | dump_bin > /dev/null;
 					read_bin | dump_bin > /dev/null;
 				fi;
+				;;
+			(@@@@*)
+				echo "$line";
+				read_bin | dump_bin;
+				read_bin | dump_bin;
+				read_bin | dump_bin;
 				;;
 			(@@@*)
 				echo "$line";
@@ -1367,6 +1440,37 @@ LANDING_SCRIPT
 
 		echo @@rrssh_host_depth;
 		dump_bin <<<$((rrssh_host_depth + 1));
+
+
+		# for optimization of transfers over the network, we send all
+		# dirnames that we need and that our parents need.
+		for dropdir_name in "${parents_dropdirs[@]}"; do
+			echo @@parent_dropdir;
+			dump_bin <<<"$dropdir_name";
+		done;
+		if ! ((is_scope_command)); then
+			for dropdir_name in "${localhost_dropdirs_names[@]}"; do
+				echo @@parent_dropdir;
+				dump_bin <<<"$dropdir_name";
+			done;
+		else
+			echo @@heavy_objects_kernel_path;
+			dump_bin <<<"$HEAVY_OBJECTS_KERNEL_PATH";
+
+			for ((i = 0; i < ${#localhost_dropdirs_names[@]}; i++)); do
+				echo @@@add_dropdir;
+				dump_bin <<<"${localhost_dropdirs_names[i]}";
+				dump_bin <<<"${localhost_dropdirs_paths[i]}";
+			done;
+			for ((i = 0; i < ${#localhost_taken_types[@]}; i++)); do
+				echo @@@@@take_obj;
+				dump_bin <<<"${localhost_taken_dest_dropdirs[i]}";
+				dump_bin <<<"${localhost_taken_types[i]}";
+				dump_bin <<<"${localhost_taken_dest_names[i]}";
+				dump_bin <<<"${localhost_taken_source_paths[i]}";
+			done;
+		fi;
+
 
 		echo @end_of_header;
 
