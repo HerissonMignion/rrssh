@@ -750,7 +750,7 @@ load_eof_values() {
 				(@@heavy_objects_kernel_path)
 					HEAVY_OBJECTS_KERNEL_PATH=$(read_bin);
 					;;
-				(@@add_dropdir)
+				(@@@add_dropdir)
 					localhost_dropdirs_names+=("$(read_bin)");
 					localhost_dropdirs_paths+=("$(read_bin)");
 					;;
@@ -1113,6 +1113,10 @@ generic_message_handler() {
 					read_bin | dump_bin > /dev/null;
 				fi;
 				;;
+			(@@child_dropdir)
+				echo @@child_dropdir;
+				read_bin | dump_bin;
+				;;
 			(@@@@*)
 				echo "$line";
 				read_bin | dump_bin;
@@ -1298,6 +1302,8 @@ command_fork() {
 	bash "$sub_analyser_kernel_path" -- --mode scan | generic_message_handler > "$analysis_output";
 	rm -f "$sub_analyser_kernel_path";
 	local line;
+	local child_dropdir;
+	local subkernel_child_dropdirs=();
 	while IFS="" read -r line || [ -n "$line" ]; do
 		case "$line" in
 			(@@total_toplevel_shift)
@@ -1313,6 +1319,14 @@ command_fork() {
 				;;
 			(@kernel_start)
 				true;
+				;;
+			(@@child_dropdir)
+				child_dropdir=$(read_bin);
+				subkernel_child_dropdirs+=("$child_dropdir");
+				if [ "$op_mode" == scan ]; then
+					echocom @@child_dropdir;
+					dump_bin <<<"$child_dropdir" 1>&3;
+				fi;
 				;;
 			(*)
 				rm -f "$analysis_output";
@@ -1471,46 +1485,52 @@ LANDING_SCRIPT
 			done;
 		fi;
 
-
 		echo @end_of_header;
-
-		# TODO: append files and folders only if we are a host
-		# command.  hum, but there's no guarenty that the new user
-		# can read the previous user's kernel to retrive information.
 
 		# TODO: make everything safer
 
-		for ((i = 0; i < ${#localhost_taken_types[@]}; i++)); do
-			case "${localhost_taken_types[i]}" in
-				(f)
-					echo @@@@file;
-					dump_bin <<<"${localhost_taken_dest_dropdirs[i]}";
-					dump_bin <<<"${localhost_taken_dest_names[i]}";
-					dump_bin < "${localhost_taken_source_paths[i]}";
-					;;
-				(d)
-					true;
-					;;
-			esac;
-		done;
-
-		{
-			skip_kernel;
-			skip_to_heavy_objects;
-			while IFS="" read -r line || [ -n "$line" ]; do
-				case "$line" in
-					(@@@@file|@@@@dir)
-						echo "$line";
-						read_bin | dump_bin;
-						read_bin | dump_bin;
-						read_bin | dump_bin;
+		if ! ((is_scope_command)); then
+			for ((i = 0; i < ${#localhost_taken_types[@]}; i++)); do
+				is_item_in_list "${localhost_taken_dest_dropdirs[i]}" "${subkernel_child_dropdirs[@]}" ||
+					continue;
+				case "${localhost_taken_types[i]}" in
+					(f)
+						echo @@@@file;
+						dump_bin <<<"${localhost_taken_dest_dropdirs[i]}";
+						dump_bin <<<"${localhost_taken_dest_names[i]}";
+						dump_bin < "${localhost_taken_source_paths[i]}";
 						;;
-					(@eof)
-						break;
+					(d)
+						true;
 						;;
 				esac;
 			done;
-		} < "$KERNEL_PATH";
+
+			{
+				skip_kernel;
+				skip_to_heavy_objects;
+				while IFS="" read -r line || [ -n "$line" ]; do
+					case "$line" in
+						(@@@@file|@@@@dir)
+							obj_dest_dropdir=$(read_bin);
+							if is_item_in_list "$obj_dest_dropdir" "${subkernel_child_dropdirs[@]}"; then
+								echo "$line";
+								dump_bin <<<"$obj_dest_dropdir";
+								read_bin | dump_bin;
+								read_bin | dump_bin;
+							else
+								read_bin > /dev/null;
+								read_bin > /dev/null;
+							fi;
+							;;
+						(@eof)
+							break;
+							;;
+					esac;
+				done;
+			} < "$HEAVY_OBJECTS_KERNEL_PATH";
+		fi;
+
 
 		echo @eof;
 
@@ -1760,12 +1780,23 @@ command_drop_dir() {
 	local dropdir_path=$(peek_toplevel_args);
 	shift_toplevel_args;
 
+	if [ "$op_mode" == scan ]; then
+		echocom @@child_dropdir;
+		dump_bin <<<"$dropdir_name" 1>&3;
+	fi;
+
 	current_command_must_run_p || return 0;
 
 
+	if ! [ -d "$dropdir_path" ]; then
+		mkdir -- "$dropdir_path" || {
+			panic "Could not create drop directory '$dropdir_name' at location '$dropdir_path'.  Do we have permission?  Does the parent directory exist?";
+		};
+	fi;
+
 	local absolute_path;
 	absolute_path=$(cd -- "$dropdir_path" && pwd) || {
-		panic "The drop directory '$dropdir_name' at location '$dropdir_path' does not exist, or we don't have access.";
+		panic "Could not change the current directory to the drop directory '$dropdir_name' at location '$dropdir_path'.  Do we have access?";
 	};
 
 	localhost_dropdirs_names+=("$dropdir_name");
@@ -1786,16 +1817,16 @@ command_drop_dir() {
 		while IFS="" read -r line || [ -n "$line" ]; do
 			case "$line" in
 				(@@@@file)
-						current_obj_dest_dropdir=$(read_bin);
-						current_obj_dest_name=$(read_bin);
-						if [ "$current_obj_dest_dropdir" == "$dropdir_name" ]; then
-							touch "$absolute_path/$current_obj_dest_name" || {
-								panic "Could not create file: '$absolute_path/$current_obj_dest_name'.";
-							};
-							read_bin > "$absolute_path/$current_obj_dest_name";
-						else
-							read_bin > /dev/null;
-						fi;
+					current_obj_dest_dropdir=$(read_bin);
+					current_obj_dest_name=$(read_bin);
+					if [ "$current_obj_dest_dropdir" == "$dropdir_name" ]; then
+						touch "$absolute_path/$current_obj_dest_name" || {
+							panic "Could not create file: '$absolute_path/$current_obj_dest_name'.";
+						};
+						read_bin > "$absolute_path/$current_obj_dest_name";
+					else
+						read_bin > /dev/null;
+					fi;
 					;;
 				(@@@@dir)
 					true;
@@ -1981,6 +2012,11 @@ main_execution_loop() {
 				panic "Invalid rrssh command: '$current_toplevel_command'.";
 				;;
 		esac;
+
+		epoll_panic && {
+			panic "epoll_panic indicated to panic.";
+		};
+
 		is_first_command_of_chain=0;
 		if ((current_command_reverse_rc)); then
 			current_command_rc=$((! current_command_rc));
@@ -2251,9 +2287,12 @@ run_root_kernel_mode() {
 					(@kernel_start)
 						true; # we do nothing
 						;;
+					(@@child_dropdir)
+						read_bin > /dev/null;
+						;;
 					(*)
 						1>&2 echo "Unknown object in kernel output: $line";
-						# MAYBE TODO: throw a real error?
+						must_panic=1;
 						;;
 				esac;
 			done;
