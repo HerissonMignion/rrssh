@@ -1802,14 +1802,32 @@ command_drop_dir() {
 	localhost_dropdirs_names+=("$dropdir_name");
 	localhost_dropdirs_paths+=("$dropdir_path");
 
-	# TODO: verify objects received from previous kernels or objects
-	# previously taken on the current kernel.
-
 	# TODO: make safer
 
 	local line;
 	local current_obj_dest_dropdir;
 	local current_obj_dest_name;
+
+	local i;
+	for ((i = 0; i < ${#localhost_taken_types[@]}; i++)); do
+		[ "$dropdir_name" == "${localhost_taken_dest_dropdirs[i]}" ] ||
+			continue;
+		current_obj_dest_name=${localhost_taken_dest_names[i]};
+		case "${localhost_taken_types[i]}" in
+			(f)
+				[ -d "$absolute_path/$current_obj_dest_name" ] && {
+					panic "Cannot overwrite a directory with a file. At '$absolute_path/$current_obj_dest_name'.";
+				};
+				cp -- "${localhost_taken_source_paths[i]}" "$absolute_path/$current_obj_dest_name" || {
+					panic "The cp command ended in error.";
+				};
+				;;
+			(d)
+				true;
+				;;
+		esac;
+	done;
+
 	{
 		skip_kernel;
 		skip_to_heavy_objects;
@@ -1820,7 +1838,7 @@ command_drop_dir() {
 					current_obj_dest_dropdir=$(read_bin);
 					current_obj_dest_name=$(read_bin);
 					if [ "$current_obj_dest_dropdir" == "$dropdir_name" ]; then
-						touch "$absolute_path/$current_obj_dest_name" || {
+						touch -- "$absolute_path/$current_obj_dest_name" || {
 							panic "Could not create file: '$absolute_path/$current_obj_dest_name'.";
 						};
 						read_bin > "$absolute_path/$current_obj_dest_name";
@@ -2234,7 +2252,7 @@ run_root_kernel_mode() {
 			trap_ran=1;
 			local i;
 			# ensure that we send @panic even if we desync with the
-			# messages and dont catch the @epoll_panic.
+			# messages and dont catch any future @epoll_panic.
 			for ((i = 0; i < 10; i++)); do
 				echo @panic;
 			done 1>&6;

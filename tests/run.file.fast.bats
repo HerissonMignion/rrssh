@@ -218,15 +218,235 @@ SCRIPT
 	
 }
 
+@test "various file forwarding scenario 2" {
+	cp /bin/bash "$temp_dir1/.";
+	run rrssh run -f - <<SCRIPT;
+take-file $(printf %q "$temp_dir1/bash") '' anydrop
+host localhost [
+	drop-dir anydrop $(printf %q "$temp_dir2")
+	drop-dir anydrop $(printf %q "$temp_dir3")
+]
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/bash" ];
+	assert_success;
+
+	run [ -f "$temp_dir3/bash" ];
+	assert_success;
+}
+
+@test "various file forwarding scenario 3" {
+	cp /bin/bash "$temp_dir1/.";
+	run rrssh run -f - <<SCRIPT;
+take-file $(printf %q "$temp_dir1/bash") '' anydrop
+host localhost [
+	host localhost [
+		drop-dir anydrop $(printf %q "$temp_dir2")
+	]
+	host localhost [
+		drop-dir anydrop $(printf %q "$temp_dir3")
+	]
+]
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/bash" ];
+	assert_success;
+
+	run [ -f "$temp_dir3/bash" ];
+	assert_success;
+}
+
+@test "various file forwarding scenario 4" {
+	cp /bin/bash "$temp_dir1/.";
+	run rrssh run -f - <<SCRIPT;
+take-file $(printf %q "$temp_dir1/bash") '' anydrop
+host localhost [
+	drop-dir anydrop $(printf %q "$temp_dir2")
+	host localhost [
+		drop-dir anydrop $(printf %q "$temp_dir3")
+	]
+]
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/bash" ];
+	assert_success;
+
+	run [ -f "$temp_dir3/bash" ];
+	assert_success;
+}
 
 
 
 
+@test "various file pulling scenario 1" {
+	cp /bin/bash "$temp_dir1/.";
+	run rrssh --fake-su run -f - <<SCRIPT;
+drop-dir drop2 $(printf %q "$temp_dir2")
+[
+	[
+		host localhost [
+			[
+				host localhost [
+					host localhost [
+						su charles [
+							su charles [
+								take-file $(printf %q "$temp_dir1/bash") "" drop2
+							]
+						]
+					]
+				]
+			]
+		]
+	]
+]
+
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/bash" ];
+	assert_success;
+	
+}
+
+@test "various file pulling scenario 2" {
+	cp /bin/bash "$temp_dir1/.";
+	run rrssh run -f - <<SCRIPT;
+drop-dir anydrop $(printf %q "$temp_dir2")
+drop-dir anydrop $(printf %q "$temp_dir3")
+host localhost [
+	take-file $(printf %q "$temp_dir1/bash") '' anydrop
+]
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/bash" ];
+	assert_success;
+
+	run [ -f "$temp_dir3/bash" ];
+	assert_success;
+}
+
+@test "various file pulling scenario 3" {
+	cp /bin/bash "$temp_dir1/.";
+	run rrssh run -f - <<SCRIPT;
+host localhost [
+	drop-dir anydrop $(printf %q "$temp_dir2")
+	drop-dir anydrop $(printf %q "$temp_dir3")
+	host localhost [
+		take-file $(printf %q "$temp_dir1/bash") '' anydrop
+	]
+]
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/bash" ];
+	assert_success;
+
+	run [ -f "$temp_dir3/bash" ];
+	assert_success;
+}
+
+@test "various file pulling scenario 4" {
+	cp /bin/bash "$temp_dir1/.";
+	run rrssh run -f - <<SCRIPT;
+drop-dir anydrop $(printf %q "$temp_dir2")
+host localhost [
+	drop-dir anydrop $(printf %q "$temp_dir3")
+	host localhost [
+		take-file $(printf %q "$temp_dir1/bash") '' anydrop
+	]
+]
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/bash" ];
+	assert_success;
+
+	run [ -f "$temp_dir3/bash" ];
+	assert_success;
+}
+
+@test "bidirectionnal file transfer" {
+	cp /bin/bash "$temp_dir1/.";
+	run rrssh run -f - <<SCRIPT;
+drop-dir anydrop $(printf %q "$temp_dir2")
+host localhost [
+	take-file $(printf %q "$temp_dir1/bash") '' anydrop
+	host localhost [
+		drop-dir anydrop $(printf %q "$temp_dir3")
+	]
+]
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/bash" ];
+	assert_success;
+
+	run [ -f "$temp_dir3/bash" ];
+	assert_success;
+}
 
 
+@test "conditionnal dropdirs 1" {
+	cp /bin/bash "$temp_dir1/.";
+	run rrssh run -f - <<SCRIPT;
+host localhost [
+	try false and drop-dir anydrop $(printf %q "$temp_dir2")
+	drop-dir anydrop $(printf %q "$temp_dir3")
+	host localhost [
+		take-file $(printf %q "$temp_dir1/bash") '' anydrop
+	]
+]
+SCRIPT
+	assert_success;
 
+	run [ -f "$temp_dir2/bash" ];
+	assert_failure;
 
+	run [ -f "$temp_dir3/bash" ];
+	assert_success;
+}
 
+@test "multiple file transfers are routed properly" {
+	run rrssh run -f - <<SCRIPT;
+take-file /bin/cat miaw drop2
+drop-dir drop3 $(printf %q "$temp_dir3")
+
+host localhost [
+	
+	take-file /bin/bash fav drop3
+	take-file /bin/grep 'second      fav' drop2
+	host localhost [
+		drop-dir drop2 $(printf %q "$temp_dir2")
+		take-file /bin/ls '' drop3
+	]
+]
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/miaw" ];
+	assert_success;
+	run [ -f "$temp_dir3/miaw" ];
+	assert_failure;
+
+	run [ -f "$temp_dir3/fav" ];
+	assert_success;
+	run [ -f "$temp_dir2/fav" ];
+	assert_failure;
+	
+	run [ -f "$temp_dir2/second      fav" ];
+	assert_success;
+	run [ -f "$temp_dir3/second      fav" ];
+	assert_failure;
+
+	run [ -f "$temp_dir3/ls" ];
+	assert_success;
+	run [ -f "$temp_dir2/ls" ];
+	assert_failure;
+}
 
 
 
