@@ -242,6 +242,12 @@ COMMANDS USED BY RRSSH'S TEST SUITE
 		This will be in effect only for the current scope and all
 		child scopes.
 
+ENVIRONMENT VARIABLES USED FOR DEVELOPMENT
+
+	RRSSH_COVERAGE_FILE
+
+		If defined, file path to append code coverage ids encountered.
+
 EXAMPLES
 
 	TODO
@@ -576,7 +582,17 @@ pipeline_debug() {
 }
 
 
-
+pipeline_coverage() {
+	local coverage_id=$1;
+	# enforce that ids begin with "id_" so that they are detectable
+	# with grep.
+	[[ "$coverage_id" == id_* ]] | exit 1;
+	echo @@coverage;
+	dump_bin <<<"$coverage_id";
+}
+coverage() {
+	pipeline_coverage "$@" 1>&3;
+}
 
 
 
@@ -1107,6 +1123,10 @@ generic_message_handler() {
 				echocom @@exitcode;
 				read_bin | dump_bin 1>&3;
 				;;
+			(@@coverage)
+				echocom @@coverage;
+				read_bin | dump_bin 1>&3;
+				;;
 			(@epoll_panic)
 				# this message should only be received from a
 				# subkernel, therefore we have fd 6.
@@ -1420,6 +1440,7 @@ LANDING_SCRIPT
 			declare -f read_line;
 			declare -f read_bin;
 			declare -f testable;
+			declare -f pipeline_coverage;
 
 			cat <<"LANDING_SCRIPT";
 
@@ -1444,15 +1465,21 @@ debug() {
 	printferr "DEBUG: %s DEBUG\n" "$@";
 }
 
+coverage() {
+	pipeline_coverage "$@";
+}
+
 
 
 
 kernel_file_path=$(testable id_nuirhienvfh mktemp) || {
+	coverage id_adsuhidfuvnri;
 	printf_landing_err "mktemp failed.  Could not create a temporary file for the sub kernel.";
 	exit 1;
 };
 
 read_bin | testable id_fdhv9qh5gf tee "$kernel_file_path" &> /dev/null || {
+	coverage id_fhiuashfiuhr;
 	printf_landing_err "tee failed.  Could not dump contents to the temporary file meant to hold the sub kernel."
 	rm -f "$kernel_file_path";
 	exit 1;
@@ -1979,7 +2006,14 @@ command_take() {
 }
 
 
+
+if false; then
+	coverage id__if_this_one_shows_up__then_coverage_detection_works;
+fi;
+
 main_execution_loop() {
+
+	coverage id_dsfhiudvhsdfg;
 
 	local current_toplevel_command;
 	local current_command_rc=0;
@@ -2368,8 +2402,15 @@ run_root_kernel_mode() {
 					(@@child_dropdir)
 						read_bin > /dev/null;
 						;;
+					(@@coverage)
+						if [ -n "$RRSSH_COVERAGE_FILE" ]; then
+							read_bin >> "$RRSSH_COVERAGE_FILE";
+						else
+							read_bin > /dev/null;
+						fi;
+						;;
 					(*)
-						1>&2 echo "Unknown object in kernel output: $line";
+						1>&2 echo "Unknown object in kernel output, will trigger panic: $line";
 						must_panic=1;
 						;;
 				esac;
