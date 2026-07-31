@@ -36,14 +36,13 @@ SYNOPSIS
 
 DESCRIPTION
 
-	An automation tool that uses ssh to jump through any number of
-	hosts to run commands and transfer files and directories.  Its
-	commands are a basic shell-like scripting language provided in
-	arguments or in a file.  Execution of the script and file
-	transfers will span as many hosts as indicated.  A strong panic
-	mecanism will stop the execution at any unexpected failures,
-	either external commands exiting with an unhandled non-0 code or
-	an internal rrssh failure.
+	An ansible-like automation tool that uses ssh to jump through any
+	number of hosts to run commands and transfer files and directories
+	along the way.  Its commands are a basic non-turing complete
+	shell-like scripting language provided in arguments or in a file.
+	A strong panic mecanism will stop the execution at any unexpected
+	failures, either external commands exiting with an unhandled non-0
+	code or an internal rrssh failure.
 
 	Rrssh is a bash script that implements a recursive scripting
 	language.  Rrssh is, in most part, a bash "kernel" that duplicates
@@ -134,29 +133,31 @@ COMMANDS
 	sudo-host <destination> : <commands>...
 
 		These commands are the main purpose of using rrssh.
-		Duplicates the kernel through a single ssh connection and
-		execute the sub commands on the remote host.  This command can
-		include itself arbitrarily many times to reach any depth in a
-		network.  The [ ] variants are scoped.  The : variants takes
-		all the commands until the end of the current scope.  The sudo
-		variants will run the actual ssh command through sudo.
+		Duplicates the rrssh kernel through a single ssh connection
+		and execute the sub commands on the remote host.  This command
+		can include itself arbitrarily many times to reach any depth
+		in a network.  The [ ] variants are scoped.  The : variants
+		take all the commands until the end of the current scope.  The
+		sudo variants will run the actual ssh command through sudo.
 
 	su <user> [ <commands>... ]
 	su <user> : <commands>...
 	sudo-su <user> [ <commands>... ]
 	sudo-su <user> : <commands>...
 
-		TODO
+		Same as the host command, but switches user on the same
+		machine instead.
 
 	[ <commands>... ]
 
-		TODO
+		Create a subscope and run commands inside.  This is the
+		equivalent of a subshell in shell scripting.
 
 	command <system-command>
 	command [ <argv>... ]
 	--- <argv>... ---
 
-		TODO
+		Call an external command.
 
 	true
 	false
@@ -165,7 +166,7 @@ COMMANDS
 
 	print <text>
 
-		TODO
+		Print a line of text to stdout.
 
 	cd <path>
 	home
@@ -189,12 +190,35 @@ COMMANDS
 	drop-dir <name> <path>
 
 		Indicate a drop directory (and its name) to receive files and
-		directories taken with take-file or take-dir.  The directory
-		must already be created.
+		directories taken with take-file or take-dir.  The parent
+		directory must already exist.
 
 OPERATORS
 
-	TODO
+	The general syntax of a "command chain" is as follows:
+
+		[try] [not] <command> [(and|or) [not] <command>]...
+
+infix operators
+
+	and
+	or
+
+		Run the next command of the chain only if the current exit
+		code of the chain is a success or failure.  Behaves exactly
+		like && and || in shell scripting.
+
+prefix operators
+
+	not <command>
+
+		Inverses the exit code of the following command.  Behaves like
+		preceeding a command with a ! in a shell script.
+
+	try
+
+		Ignore the exit code of the following command chain.  Default
+		behavior is to panic when a command chain exists non-0.
 
 OPTIONS USED BY RRSSH'S TEST SUITE
 
