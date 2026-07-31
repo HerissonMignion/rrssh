@@ -129,18 +129,22 @@ EXECUTION
 COMMANDS
 
 	host <destination> [ <commands>... ]
+	host <destination> : <commands>...
 	sudo-host <destination> [ <commands>... ]
+	sudo-host <destination> : <commands>...
 
 		These commands are the main purpose of using rrssh.
 		Duplicates the kernel through a single ssh connection and
 		execute the sub commands on the remote host.  This command can
-		include itself arbitrarily many times to reach any depth.  The
-		[ ] variants are scoped.  The : variants takes all the
-		commands until the end of the current scope.  The sudo
+		include itself arbitrarily many times to reach any depth in a
+		network.  The [ ] variants are scoped.  The : variants takes
+		all the commands until the end of the current scope.  The sudo
 		variants will run the actual ssh command through sudo.
 
 	su <user> [ <commands>... ]
+	su <user> : <commands>...
 	sudo-su <user> [ <commands>... ]
+	sudo-su <user> : <commands>...
 
 		TODO
 
@@ -647,8 +651,10 @@ epoll_panic && {
 
 
 # if we are not the root kernel, then this is the token that's gonna
-# close our scope.
+# close our scope.  if empty, then we dont have a closing token.
 toplevel_scope_closing_token="";
+
+consume_toplevel_scope_closing_token=0;
 
 
 toplevel_args=();
@@ -737,6 +743,9 @@ load_eof_values() {
 					;;
 				(@fake_su)
 					opt_fake_su=1;
+					;;
+				(@consume_toplevel_scope_closing_token)
+					consume_toplevel_scope_closing_token=1;
 					;;
 				(@@make_command_fail_id)
 					make_command_fail_ids+=("$(read_bin)");
@@ -1264,20 +1273,34 @@ command_fork() {
 
 	local arg_destination; # host commands
 	local arg_username; # su commands
+	local scope_opening_token="";
+	local scope_closing_token="";
 	if ! ((is_scope_command)); then
 		arg_destination=$(peek_toplevel_args);
 		arg_username=$(peek_toplevel_args);
 		shift_toplevel_args;
-		if ! [ "$(peek_toplevel_args)" == "[" ]; then
-			panic "The '$command_name' command must begin with an opening '['";
-		fi;
+		scope_opening_token=$(peek_toplevel_args);
+		case "$scope_opening_token" in
+			("[")
+				scope_closing_token="]";
+				;;
+			(":")
+				scope_closing_token=$toplevel_scope_closing_token;
+				;;
+			(*)
+				panic "The '$command_name' command must begin with an opening '[' or ':'.";
+				;;
+		esac;
 	    shift_toplevel_args;
+	else
+		scope_opening_token="[";
+		scope_closing_token="]";
 	fi;
 
-	# at this point, the opening square bracket is consumed, the next
-	# toplevel arg is the first token inside the scope.  the closing
-	# square bracket will come later and be consumed by the sub
-	# kernel.
+	# at this point, the opening square bracket or : is consumed, the
+	# next toplevel arg is the first token inside the scope.  the
+	# closing square bracket will come later and may be consumed by
+	# the sub kernel.
 
 	# pre-execution analysis
 	local total_scope_args_shift=0;
@@ -1291,7 +1314,10 @@ command_fork() {
 		begin_basic_fork;
 
 		echo @@toplevel_scope_closing_token;
-		dump_bin <<<"]";
+		dump_bin <<<"$scope_closing_token";
+		if ! [ "$scope_opening_token" == ":" ]; then
+			echo @consume_toplevel_scope_closing_token;
+		fi;
 
 		echo @@rrssh_host_depth;
 		dump_bin <<<$((rrssh_host_depth + 1));
@@ -1450,7 +1476,10 @@ LANDING_SCRIPT
 
 
 		echo @@toplevel_scope_closing_token;
-		dump_bin <<<"]";
+		dump_bin <<<"$scope_closing_token";
+		if ! [ "$scope_opening_token" == ":" ]; then
+			echo @consume_toplevel_scope_closing_token;
+		fi;
 
 		echo @@rrssh_host_depth;
 		dump_bin <<<$((rrssh_host_depth + 1));
@@ -1947,12 +1976,15 @@ main_execution_loop() {
 			panic "epoll_panic indicated to panic.";
 		};
 
-		if ((is_first_command_of_chain)); then
-			# TODO: consume scope closing token only if parent indicated to do so.
-			if [ "$(peek_toplevel_args)" == "$toplevel_scope_closing_token" ]; then
-				scope_closing_token_reached=1;
-				shift_toplevel_args;
-				break;
+		if [ -n "$toplevel_scope_closing_token" ]; then
+			if ((is_first_command_of_chain)); then
+				if [ "$(peek_toplevel_args)" == "$toplevel_scope_closing_token" ]; then
+					scope_closing_token_reached=1;
+					if ((consume_toplevel_scope_closing_token)); then
+						shift_toplevel_args;
+					fi;
+					break;
+				fi;
 			fi;
 		fi;
 
@@ -2099,7 +2131,11 @@ main_execution_loop() {
 
 	if ! ((is_root_kernel)); then
 		if ! ((scope_closing_token_reached)); then
-			panic "The scope must end with a closing token $toplevel_scope_closing_token";
+			# an empty string means we had to read tokens until the
+			# end.
+			if [ -n "$toplevel_scope_closing_token" ]; then
+				panic "The scope must end with a closing token $toplevel_scope_closing_token";
+			fi;
 		fi;
 	fi;
 

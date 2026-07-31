@@ -58,6 +58,132 @@ teardown() {
 	assert_failure 3;
 }
 
+@test "an empty argument does not end the root scope" {
+	run rrssh run --- --- echo asdf --- "" --- echo qwer ---;
+	assert_failure;
+	refute_output --partial asdf;
+	refute_output --partial qwer;
+
+	run rrssh run --- [ --- echo asdf --- "" --- echo qwer --- ];
+	assert_failure;
+	refute_output --partial asdf;
+	refute_output --partial qwer;
+
+	run rrssh run --- host localhost [ --- echo asdf --- "" --- echo qwer --- ];
+	assert_failure;
+	refute_output --partial asdf;
+	refute_output --partial qwer;
+}
+
+@test "host/su command : form, syntax" {
+	run rrssh run --- :;
+	assert_failure;
+
+	run rrssh run --- host localhost :;
+	assert_success;
+
+	run rrssh run --- host localhost : :;
+	assert_failure;
+
+	run rrssh run --- --- echo asdf --- host localhost : "[";
+	assert_failure;
+	refute_output --partial asdf;
+
+	run rrssh run --- --- echo asdf --- "[" host localhost : "[";
+	assert_failure;
+	refute_output --partial asdf;
+
+	run rrssh run --- --- echo asdf --- [ host localhost : "[" ];
+	assert_failure;
+	refute_output --partial asdf;
+
+	run rrssh run --- --- echo asdf --- [ host localhost : [ ] --- echo qwer --- ];
+	assert_success;
+	assert_output --partial asdf;
+
+	run rrssh run --- [ host localhost : ];
+	assert_success;
+
+	run rrssh run --- [ host localhost : ] [ host localhost : ] [ host localhost : ];
+	assert_success;
+
+	run rrssh run --- [ host localhost : ] [ host localhost : ] "[" host localhost : [ host localhost : ];
+	assert_failure;
+
+	run rrssh run --- [ host localhost : host localhost : host localhost [ host localhost : ] ];
+	assert_success;
+
+
+
+	
+	run rrssh --fake-su run --- :;
+	assert_failure;
+
+	run rrssh --fake-su run --- su charles :;
+	assert_success;
+
+	run rrssh --fake-su run --- su charles : :;
+	assert_failure;
+
+	run rrssh --fake-su run --- --- echo asdf --- su charles : "[";
+	assert_failure;
+	refute_output --partial asdf;
+
+	run rrssh --fake-su run --- --- echo asdf --- "[" su charles : "[";
+	assert_failure;
+	refute_output --partial asdf;
+
+	run rrssh --fake-su run --- --- echo asdf --- [ su charles : "[" ];
+	assert_failure;
+	refute_output --partial asdf;
+
+	run rrssh --fake-su run --- --- echo asdf --- [ su charles : [ ] --- echo qwer --- ];
+	assert_success;
+	assert_output --partial asdf;
+
+	run rrssh --fake-su run --- [ su charles : ];
+	assert_success;
+
+	run rrssh --fake-su run --- [ su charles : ] [ su charles : ] [ su charles : ];
+	assert_success;
+
+	run rrssh --fake-su run --- [ su charles : ] [ su charles : ] "[" su charles : [ su charles : ];
+	assert_failure;
+
+	run rrssh --fake-su run --- [ su charles : su charles : su charles [ su charles : ] ];
+	assert_success;
+}
+
+@test "host/su : command form, scope boundaries are correct" {
+	run rrssh run --- cd /tmp host localhost : pwd;
+	assert_success;
+	refute_output --partial tmp;
+
+	run rrssh run --- cd /tmp host localhost [ pwd ];
+	assert_success;
+	refute_output --partial tmp;
+
+	run rrssh run --- cd /tmp host localhost [ cd / true ] pwd;
+	assert_success;
+	assert_output --partial tmp;
+
+	run rrssh run --- cd /tmp host localhost : [ cd / true ] pwd;
+	assert_success;
+	refute_output --partial tmp;
+
+	run rrssh run --- cd / host localhost : cd /tmp [ cd / true ] pwd;
+	assert_success;
+	assert_output --partial tmp;
+
+	run rrssh run --- cd / host localhost : cd /tmp host localhost [ cd / true ] pwd;
+	assert_success;
+	assert_output --partial tmp;
+
+	run rrssh run --- cd / host localhost : cd /tmp host localhost : [ cd / true ] pwd;
+	assert_success;
+	refute_output --partial tmp;
+}
+
 @test "host command's landing error paths are working" {
 	run rrssh run -f - <<"SCRIPT";
 host localhost [
