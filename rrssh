@@ -9,17 +9,9 @@
 
 # TODO: un pretty printer
 
-# TODO: rendre chaque commandes externes testable pour des failures en
-# passant par une commande intermédire qui compare un id fourni pour
-# savoir si on doit provoquer le non-happy path.
-
 # TODO: améliorer l'anglais dans le message d'aide.
 
-# TODO: code coverage
-
 # TODO: différentes versions de bash
-
-# TODO: control c avec mkfifo
 
 # TODO: set-env unset-env
 
