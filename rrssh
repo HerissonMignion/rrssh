@@ -976,13 +976,22 @@ handle_incoming_files_and_dirs() {
 	if ! is_item_in_list "$dest_dropdir" "${localhost_dropdirs_names[@]}"; then
 		# still make sure that parents actually need the object
 		if is_item_in_list "$dest_dropdir" "${parents_dropdirs[@]}"; then
-			# TODO: handle directories
 
 			echo "$header";
 			dump_bin <<<"$dest_dropdir";
 			dump_bin <<<"$dest_name";
 			if ((is_local)); then
-				dump_bin < "$local_source_path";
+				case "$header" in
+					(@@@@file)
+						dump_bin < "$local_source_path";
+						;;
+					(@@@@dir)
+						(cd -- "$local_source_path" && tar -c -f - .) | dump_bin;
+						;;
+					(*)
+						pipeline_panic "Unknown object '$header'.";
+						;;
+				esac;
 			else
 				read_bin | dump_bin;
 			fi;
@@ -997,10 +1006,21 @@ handle_incoming_files_and_dirs() {
 
 	local temp_holder=$(mktemp);
 	if ((is_local)); then
-		cat -- "$local_source_path";
+		case "$header" in
+			(@@@@file)
+				cat -- "$local_source_path" > "$temp_holder";
+				;;
+			(@@@@dir)
+				(cd -- "$local_source_path" && tar -c -f - .) > "$temp_holder";
+				;;
+			(*)
+				rm -f "$temp_holder";
+				pipeline_panic "Unknown object '$header'.";
+				;;
+		esac;
 	else
-		read_bin;
-	fi > "$temp_holder";
+		read_bin > "$temp_holder";
+	fi;
 
 
 	local i;
@@ -1012,12 +1032,28 @@ handle_incoming_files_and_dirs() {
 					pipeline_panic "Could not cd to dropdir '${localhost_dropdirs_paths[i]}'.";
 				};
 
-				if [ "$header" == @@@@file ]; then
-					tee -- "$dest_name" < "$temp_holder" &> /dev/null || {
-						rm -f "$temp_holder";
-						pipeline_panic "Could not write into file '$dest_name'.";
-					};
-				fi;
+				case "$header" in
+					(@@@@file)
+						tee -- "$dest_name" < "$temp_holder" &> /dev/null || {
+							rm -f "$temp_holder";
+							pipeline_panic "Could not write into file '$dest_name'.";
+						};
+						;;
+					(@@@@dir)
+						mkdir -- "$dest_name" || {
+							rm -f "$temp_holder";
+							pipeline_panic "Could not create directory '$dest_name'.";
+						};
+						cd -- "$dest_name" || {
+							rm -f "$temp_holder";
+							pipeline_panic "Could not change directory into '$dest_name'.";
+						};
+						tar -x -f - . < "$temp_holder" || {
+							rm -f "$temp_holder";
+							pipeline_panic "An error occured while extracting files inside directory '$dest_name'.";
+						};
+						;;
+				esac;
 
 			) || return 1;
 		fi;
@@ -1573,7 +1609,18 @@ LANDING_SCRIPT
 						dump_bin < "${localhost_taken_source_paths[i]}";
 						;;
 					(d)
-						true;
+						echo @@@@dir;
+						dump_bin <<<"${localhost_taken_dest_dropdirs[i]}";
+						dump_bin <<<"${localhost_taken_dest_names[i]}";
+						(
+							cd -- "${localhost_taken_source_paths[i]}" || {
+								dump_bin <<<"";
+								pipeline_panic "Could not change directory into directory '${localhost_taken_source_paths[i]}.";
+							};
+
+							tar -c -f - . | dump_bin;
+
+						) || exit 1;
 						;;
 				esac;
 			done;
@@ -1895,7 +1942,12 @@ command_drop_dir() {
 				};
 				;;
 			(d)
-				true;
+				[ -f "$absolute_path/$current_obj_dest_name" ] && {
+					panic "Cannot overwrite a file with a directory. At '$absolute_path/$current_obj_dest_name'.";
+				};
+				cp -r -- "${localhost_taken_source_paths[i]}" "$absolute_path/$current_obj_dest_name" || {
+					panic "The cp -r command ended in error.";
+				};
 				;;
 		esac;
 	done;
@@ -1919,7 +1971,24 @@ command_drop_dir() {
 					fi;
 					;;
 				(@@@@dir)
-					true;
+					current_obj_dest_dropdir=$(read_bin);
+					current_obj_dest_name=$(read_bin);
+					if [ "$current_obj_dest_dropdir" == "$dropdir_name" ]; then
+						mkdir -- "$absolute_path/$current_obj_dest_name" || {
+							panic "Could not create directory '$absolute_path/$current_obj_dest_name'.";
+						};
+						(
+							cd -- "$absolute_path/$current_obj_dest_name" || {
+								panic "Could not change directory into '$absolute_path/$current_obj_dest_name'";
+							};
+
+							read_bin | tar -x -f - . || {
+								panic "An error occurred while extracting the directory.";
+							};
+						) || exit 1;
+					else
+						read_bin > /dev/null;
+					fi;
 					;;
 				(@eof)
 					break;
@@ -1984,7 +2053,15 @@ command_take() {
 			localhost_taken_source_paths+=("$(bash_realpath "$obj_path")");
 			;;
 		(take-dir)
-			return 1;
+			header_line=@@@@dir;
+			[ -d "$obj_path" ] || {
+				panic "The directory '$obj_path' doesn't exist or is not a directory.";
+			};
+			# debug "$(bash_realpath "$obj_path")";
+			localhost_taken_types+=("d");
+			localhost_taken_dest_dropdirs+=("$dest_dropdir");
+			localhost_taken_dest_names+=("$dest_name");
+			localhost_taken_source_paths+=("$(bash_realpath "$obj_path")");
 			;;
 	esac;
 
