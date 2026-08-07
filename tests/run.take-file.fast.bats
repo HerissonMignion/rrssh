@@ -532,7 +532,7 @@ SCRIPT
 }
 
 
-@test "conditionnal takes and drops 1" {
+@test "conditionnal take-file and drops 1" {
 	cp /bin/bash "$temp_dir1/.";
 	run rrssh run -f - <<SCRIPT;
 host localhost [
@@ -555,7 +555,7 @@ SCRIPT
 	assert_success;
 }
 
-@test "conditionnal takes and drops 2" {
+@test "conditionnal take-file and drops 2" {
 	cp /bin/bash "$temp_dir1/.";
 	run rrssh run -f - <<SCRIPT;
 host localhost [

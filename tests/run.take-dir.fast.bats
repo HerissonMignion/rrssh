@@ -460,6 +460,195 @@ SCRIPT
 	assert_success;
 }
 
+@test "various directory pulling scenario 1" {
+	mkdir "$temp_dir1/mydir";
+	cp /bin/grep "$temp_dir1/mydir/.";
+	run rrssh --fake-su run -f - <<SCRIPT;
+drop-dir drop2 $(printf %q "$temp_dir2")
+[
+	[
+		host localhost [
+			[
+				host localhost [
+					host localhost [
+						su charles [
+							su charles [
+								take-dir $(printf %q "$temp_dir1/mydir") "" drop2
+							]
+						]
+					]
+				]
+			]
+		]
+	]
+]
+
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/mydir/grep" ];
+	assert_success;
+
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir2/mydir/grep";
+	assert_success;
+}
+
+@test "various directory pulling scenario 2" {
+	mkdir "$temp_dir1/mydir";
+	cp /bin/grep "$temp_dir1/mydir/.";
+	run rrssh run -f - <<SCRIPT;
+drop-dir anydrop $(printf %q "$temp_dir2")
+drop-dir anydrop $(printf %q "$temp_dir3")
+host localhost [
+	take-dir $(printf %q "$temp_dir1/mydir") '' anydrop
+]
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/mydir/grep" ];
+	assert_success;
+
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir2/mydir/grep";
+	assert_success;
+
+	run [ -f "$temp_dir3/mydir/grep" ];
+	assert_success;
+
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir3/mydir/grep";
+	assert_success;
+}
+
+@test "various directory pulling scenario 3" {
+	mkdir "$temp_dir1/mydir";
+	cp /bin/grep "$temp_dir1/mydir/.";
+	run rrssh run -f - <<SCRIPT;
+host localhost [
+	drop-dir anydrop $(printf %q "$temp_dir2")
+	drop-dir anydrop $(printf %q "$temp_dir3")
+	host localhost [
+		take-dir $(printf %q "$temp_dir1/mydir") '' anydrop
+	]
+]
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/mydir/grep" ];
+	assert_success;
+
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir2/mydir/grep";
+	assert_success;
+
+	run [ -f "$temp_dir3/mydir/grep" ];
+	assert_success;
+
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir3/mydir/grep";
+	assert_success;
+}
+
+@test "various directory pulling scenario 4" {
+	mkdir "$temp_dir1/mydir";
+	cp /bin/grep "$temp_dir1/mydir/.";
+	run rrssh run -f - <<SCRIPT;
+drop-dir anydrop $(printf %q "$temp_dir2")
+host localhost [
+	drop-dir anydrop $(printf %q "$temp_dir3")
+	host localhost [
+		take-dir $(printf %q "$temp_dir1/mydir") '' anydrop
+	]
+]
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/mydir/grep" ];
+	assert_success;
+
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir2/mydir/grep";
+	assert_success;
+
+	run [ -f "$temp_dir3/mydir/grep" ];
+	assert_success;
+
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir3/mydir/grep";
+	assert_success;
+}
+
+@test "bidirectionnal directory transfer" {
+	mkdir "$temp_dir1/mydir";
+	cp /bin/grep "$temp_dir1/mydir/.";
+	run rrssh run -f - <<SCRIPT;
+drop-dir anydrop $(printf %q "$temp_dir2")
+host localhost [
+	take-dir $(printf %q "$temp_dir1/mydir") '' anydrop
+	host localhost [
+		drop-dir anydrop $(printf %q "$temp_dir3")
+	]
+]
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/mydir/grep" ];
+	assert_success;
+
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir2/mydir/grep";
+	assert_success;
+
+	run [ -f "$temp_dir3/mydir/grep" ];
+	assert_success;
+
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir3/mydir/grep";
+	assert_success;
+}
+
+@test "conditionnal take-dir and drops 1" {
+	mkdir "$temp_dir1/mydir";
+	cp /bin/grep "$temp_dir1/mydir/.";
+	run rrssh run -f - <<SCRIPT;
+host localhost [
+	try false and drop-dir anydrop $(printf %q "$temp_dir2")
+	drop-dir anydrop $(printf %q "$temp_dir3")
+	host localhost [
+		take-dir $(printf %q "$temp_dir1/mydir") '' anydrop
+	]
+]
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/mydir/grep" ];
+	assert_failure;
+
+	run [ -f "$temp_dir3/mydir/grep" ];
+	assert_success;
+
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir3/mydir/grep";
+	assert_success;
+}
+
+@test "conditionnal take-dir and drops 2" {
+	mkdir "$temp_dir1/mydir";
+	cp /bin/grep "$temp_dir1/mydir/.";
+	run rrssh run -f - <<SCRIPT;
+host localhost [
+	drop-dir anydrop $(printf %q "$temp_dir2")
+	drop-dir anydrop $(printf %q "$temp_dir3")
+	host localhost [
+		false and take-dir $(printf %q "$temp_dir1/mydir") '' anydrop or --- echo QWER ---
+	]
+]
+SCRIPT
+	assert_success;
+	assert_output --partial QWER;
+
+	run [ -f "$temp_dir2/mydir/grep" ];
+	assert_failure;
+
+	run [ -f "$temp_dir3/mydir/grep" ];
+	assert_failure;
+}
+
+
+
+
+
 
 
 
