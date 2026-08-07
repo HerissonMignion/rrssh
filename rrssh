@@ -952,7 +952,6 @@ bash_realpath() {
 }
 
 
-
 validate_drop_item_name() {
 	local name=$1;
 	case "$name" in
@@ -1000,7 +999,7 @@ handle_incoming_files_and_dirs() {
 						dump_bin < "$local_source_path";
 						;;
 					(@@@@dir)
-						(cd -- "$local_source_path" && tar -c -f - .) | dump_bin;
+						(cd -- "$local_source_path" && tar -c -f - . || echo "") | dump_bin;
 						;;
 					(*)
 						pipeline_panic "Unknown object '$header'.";
@@ -1025,7 +1024,7 @@ handle_incoming_files_and_dirs() {
 				cat -- "$local_source_path" > "$temp_holder";
 				;;
 			(@@@@dir)
-				(cd -- "$local_source_path" && tar -c -f - .) > "$temp_holder";
+				(cd -- "$local_source_path" && tar -c -f - . || echo "") > "$temp_holder";
 				;;
 			(*)
 				rm -f "$temp_holder";
@@ -1035,7 +1034,6 @@ handle_incoming_files_and_dirs() {
 	else
 		read_bin > "$temp_holder";
 	fi;
-
 
 	local i;
 	for ((i = 0; i < ${#localhost_dropdirs_names[@]}; i++)); do
@@ -2044,12 +2042,23 @@ command_take() {
 	local dest_dropdir=$(peek_toplevel_args);
 	shift_toplevel_args;
 
-	[ -z "$dest_name" ] && dest_name=$(basename "$obj_path");
-	validate_drop_item_name "$dest_name" || {
-		panic "Invalid destination name '$dest_name'.";
-	};
+
+
 	[ -n "$obj_path" ] || {
 		panic "The source path for the $arg0 command cannot be an empty string.";
+	};
+	if [ -z "$dest_name" ]; then
+		if [ "$arg0" == take-dir ]; then
+			case "$(basename -- "$obj_path")" in
+				(.|..)
+					panic "When calling take-dir with a source directory named '.' or '..', you must provide a destination name.";
+					;;
+			esac;
+		fi;
+		dest_name=$(basename -- "$obj_path");
+	fi;
+	validate_drop_item_name "$dest_name" || {
+		panic "Invalid destination name '$dest_name'.";
 	};
 
 	current_command_must_run_p || return 0;

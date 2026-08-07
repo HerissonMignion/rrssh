@@ -16,8 +16,6 @@ teardown() {
 	rm -rf "$temp_dir3";
 }
 
-
-# TODO: check md5sum
 compare_md5() {
 	local file1=$1;
 	local file2=$2;
