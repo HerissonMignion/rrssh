@@ -345,13 +345,120 @@ SCRIPT
 }
 
 
+@test "various directory forwarding scenario 1" {
+	mkdir "$temp_dir1/mydir";
+	cp /bin/grep "$temp_dir1/mydir/.";
+	run rrssh --fake-su run -f - <<SCRIPT;
+take-dir $(printf %q "$temp_dir1/mydir") "" drop2
+[
+	[
+		host localhost [
+			[
+				host localhost [
+					host localhost [
+						su charles [
+							su charles [
+								drop-dir drop2 $(printf %q "$temp_dir2")
+							]
+						]
+					]
+				]
+			]
+		]
+	]
+]
+
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/mydir/grep" ];
+	assert_success;
+
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir2/mydir/grep";
+	assert_success;
+}
+
+@test "various directory forwarding scenario 2" {
+	mkdir "$temp_dir1/mydir";
+	cp /bin/grep "$temp_dir1/mydir/.";
+	run rrssh run -f - <<SCRIPT;
+take-dir $(printf %q "$temp_dir1/mydir") '' anydrop
+host localhost [
+	drop-dir anydrop $(printf %q "$temp_dir2")
+	drop-dir anydrop $(printf %q "$temp_dir3")
+]
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/mydir/grep" ];
+	assert_success;
+
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir2/mydir/grep";
+	assert_success;
+
+	run [ -f "$temp_dir3/mydir/grep" ];
+	assert_success;
+
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir3/mydir/grep";
+	assert_success;
+}
+
+@test "various directory forwarding scenario 3" {
+	mkdir "$temp_dir1/mydir";
+	cp /bin/grep "$temp_dir1/mydir/.";
+	run rrssh run -f - <<SCRIPT;
+take-dir $(printf %q "$temp_dir1/mydir") '' anydrop
+host localhost [
+	host localhost [
+		drop-dir anydrop $(printf %q "$temp_dir2")
+	]
+	host localhost [
+		drop-dir anydrop $(printf %q "$temp_dir3")
+	]
+]
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/mydir/grep" ];
+	assert_success;
+
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir2/mydir/grep";
+	assert_success;
+
+	run [ -f "$temp_dir3/mydir/grep" ];
+	assert_success;
+
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir3/mydir/grep";
+	assert_success;
+}
 
 
+@test "various directory forwarding scenario 4" {
+	mkdir "$temp_dir1/mydir";
+	cp /bin/grep "$temp_dir1/mydir/.";
+	run rrssh run -f - <<SCRIPT;
+take-dir $(printf %q "$temp_dir1/mydir") '' anydrop
+host localhost [
+	drop-dir anydrop $(printf %q "$temp_dir2")
+	host localhost [
+		drop-dir anydrop $(printf %q "$temp_dir3")
+	]
+]
+SCRIPT
+	assert_success;
 
+	run [ -f "$temp_dir2/mydir/grep" ];
+	assert_success;
 
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir2/mydir/grep";
+	assert_success;
 
+	run [ -f "$temp_dir3/mydir/grep" ];
+	assert_success;
 
-
+	run compare_md5 "$temp_dir1/mydir/grep" "$temp_dir3/mydir/grep";
+	assert_success;
+}
 
 
 
