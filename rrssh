@@ -1044,17 +1044,18 @@ handle_incoming_files_and_dirs() {
 		# still make sure that parents actually need the object
 		if is_item_in_list "$dest_dropdir" "${parents_dropdirs[@]}"; then
 
-			echo "$header";
-			dump_bin <<<"$dest_dropdir";
-			dump_bin <<<"$dest_name";
 			if ((is_local)); then
 				case "$header" in
 					(@@@@file)
-						[ -f "$local_source_path" ] || {
+						testable id_2nufhu4hfui4 [ -f "$local_source_path" ] || {
 							pipeline_coverage id_sduhiuregnjnf;
-							pipeline_panic "The file '$local_source_path' doesn't exist or is not a file.";
+							pipeline_panic "AAAA The file '$local_source_path' doesn't exist or is not a file.";
 						};
-						gzip --stdout - < "$local_source_path" | dump_bin;
+
+						echo "$header";
+						dump_bin <<<"$dest_dropdir";
+						dump_bin <<<"$dest_name";
+						testable id_nfw3h4g8ih3498 gzip --stdout - < "$local_source_path" | dump_bin;
 						pipestatus_save;
 						if ! pipestatus_test 0; then
 							pipeline_coverage id_fvh39nfgur;
@@ -1062,19 +1063,20 @@ handle_incoming_files_and_dirs() {
 						fi;
 						;;
 					(@@@@dir)
-						if ! (cd -- "$local_source_path"); then
+						if ! (testable id_ndu93hg894hg cd -- "$local_source_path"); then
 							pipeline_coverage id_xhiushutbdfudst;
 							pipeline_panic "Could not change directory into '$local_source_path'.";
 						fi;
-						(if cd -- "$local_source_path"; then tar -c -f - .; else echo ""; fi) | gzip --stdout - | dump_bin;
+
+						echo "$header";
+						dump_bin <<<"$dest_dropdir";
+						dump_bin <<<"$dest_name";
+						(if cd -- "$local_source_path"; then testable id_asdfiehusgr tar -c -f - .; else echo ""; fi) | testable id_ahduh9g83h4g89hr gzip --stdout - | dump_bin;
 						pipestatus_save;
-						if ! pipestatus_test 0; then
+						if ! pipestatus_test 0 || ! pipestatus_test 1; then
 							pipeline_coverage id_asdh39nugh34gnur;
-							pipeline_panic "There was an error when archiving the directory '$local_source_path' with tar.";
-						fi;
-						if ! pipestatus_test 1; then
 							pipeline_coverage id_uidhgiusng5rust;
-							pipeline_panic "There was a problem with gzip (for directory '$local_source_path').";
+							pipeline_panic "There was an error when archiving the directory '$local_source_path' with tar, or when compressing with gzip.";
 						fi;
 						;;
 					(*)
@@ -1082,6 +1084,9 @@ handle_incoming_files_and_dirs() {
 						;;
 				esac;
 			else
+				echo "$header";
+				dump_bin <<<"$dest_dropdir";
+				dump_bin <<<"$dest_name";
 				read_bin_pipe_dump_bin;
 			fi;
 			
@@ -1098,7 +1103,7 @@ handle_incoming_files_and_dirs() {
 	if ((is_local)); then
 		case "$header" in
 			(@@@@file)
-				cat -- "$local_source_path" | gzip --stdout - > "$temp_holder";
+				testable id_ncwuhgu4hrr94 cat -- "$local_source_path" | testable id_sdguiwhgu gzip --stdout - > "$temp_holder";
 				pipestatus_save;
 				if ! pipestatus_test 0; then
 					rm -f "$temp_holder";
@@ -1112,22 +1117,18 @@ handle_incoming_files_and_dirs() {
 				fi;
 				;;
 			(@@@@dir)
-				if ! (cd -- "$local_source_path"); then
+				if ! (testable id_hgu9rhuh39u cd -- "$local_source_path"); then
 					rm -f "$temp_holder";
 					pipeline_coverage id_asbvui4gbfdbvuidbrgui;
 					pipeline_panic "Could not change directory into '$local_source_path'.";
 				fi;
-				(if cd -- "$local_source_path"; then tar -c -f - .; else echo ""; fi) | gzip --stdout - > "$temp_holder";
+				(if cd -- "$local_source_path"; then testable id_2h9vu3hr tar -c -f - .; else echo ""; fi) | testable id_v93uhrgv93 gzip --stdout - > "$temp_holder";
 				pipestatus_save;
-				if ! pipestatus_test 0; then
+				if ! pipestatus_test 0 || ! pipestatus_test 1; then
 					rm -f "$temp_holder";
 					pipeline_coverage id_adnvrngi4u3huifhder;
-					pipeline_panic "There was an error when archiving the directory '$local_source_path' with tar.";
-				fi;
-				if ! pipestatus_test 1; then
-					rm -f "$temp_holder";
 					pipeline_coverage id_qjivudfh9u4n5guihg5;
-					pipeline_panic "There was a problem with gzip (for directory '$local_source_path').";
+					pipeline_panic "There was an error when archiving the directory '$local_source_path' with tar or when compressing with gzip.";
 				fi;
 				;;
 			(*)
@@ -1151,7 +1152,7 @@ handle_incoming_files_and_dirs() {
 
 				case "$header" in
 					(@@@@file)
-						gzip --stdout -d - < "$temp_holder" | tee -- "$dest_name" &> /dev/null;
+						testable id_vuherigrt gzip --stdout -d - < "$temp_holder" | testable id_anduierr tee -- "$dest_name" &> /dev/null;
 						pipestatus_save;
 						if ! pipestatus_test 0; then
 							rm -f "$temp_holder";
@@ -1165,17 +1166,17 @@ handle_incoming_files_and_dirs() {
 						fi;
 						;;
 					(@@@@dir)
-						mkdir -- "$dest_name" || {
+						testable id_sgiuhrgur mkdir -- "$dest_name" || {
 							rm -f "$temp_holder";
 							pipeline_coverage id_ghuierhbunr9uhn3fnr;
 							pipeline_panic "Could not create directory '$dest_name'.";
 						};
-						cd -- "$dest_name" || {
+						testable id_vhuiherg9ur cd -- "$dest_name" || {
 							rm -f "$temp_holder";
 							pipeline_coverage id_bnti9h3urhg9urh39g;
 							pipeline_panic "Could not change directory into '$dest_name'.";
 						};
-						gzip --stdout -d - < "$temp_holder" | tar -x -f - .;
+						testable id_huvehrg gzip --stdout -d - < "$temp_holder" | testable id_ashdiuehr tar -x -f - .;
 						pipestatus_save;
 						if ! pipestatus_test 0; then
 							rm -f "$temp_holder";
@@ -1672,6 +1673,14 @@ while IFS="" read -r line || [ -n "$line" ]; do
 			echo @@coverage >> "$kernel_file_path";
 			read_bin_pipe_dump_bin >> "$kernel_file_path";
 			;;
+		(@@print_stdout|@@print_stderr)
+			echo "$line";
+			read_bin_pipe_dump_bin;
+			;;
+		(@panic)
+			echo @panic >> "$kernel_file_path";
+			break;
+			;;
 		(*)
 			error "Unknown message '$line' received in stdin during duplication.";
 			rm -f "$kernel_file_path";
@@ -1782,7 +1791,7 @@ LANDING_SCRIPT
 						echo @@@@file;
 						dump_bin <<<"${localhost_taken_dest_dropdirs[i]}";
 						dump_bin <<<"${localhost_taken_dest_names[i]}";
-						gzip --stdout - < "${localhost_taken_source_paths[i]}" | dump_bin;
+						testable id_sdghuiarhui gzip --stdout - < "${localhost_taken_source_paths[i]}" | dump_bin;
 						pipestatus_save;
 						if ! pipestatus_test 0; then
 							pipeline_coverage id_vneuhg894hgrneg9u3h;
@@ -1796,7 +1805,8 @@ LANDING_SCRIPT
 						};
 
 						(
-							cd -- "${localhost_taken_source_paths[i]}" || {
+							testable id_asudhiauhieruger cd -- "${localhost_taken_source_paths[i]}" || {
+								pipeline_coverage id_fuvishugirgnd;
 								pipeline_panic "Could not change directory into directory '${localhost_taken_source_paths[i]}.";
 							};
 
@@ -1804,15 +1814,12 @@ LANDING_SCRIPT
 							dump_bin <<<"${localhost_taken_dest_dropdirs[i]}";
 							dump_bin <<<"${localhost_taken_dest_names[i]}";
 
-							tar -c -f - . | gzip --stdout - | dump_bin;
+							testable id_asudhfiuhred tar -c -f - . | testable id_308hgue3u gzip --stdout - | dump_bin;
 							pipestatus_save;
-							if ! pipestatus_test 0; then
+							if ! pipestatus_test 0 || ! pipestatus_test 1; then
 								pipeline_coverage id_uejr8gh398hfhg93;
-								pipeline_panic "There was a problem when archiving directory '${localhost_taken_source_paths[i]}' with tar.";
-							fi;
-							if ! pipestatus_test 1; then
 								pipeline_coverage id_n98rhg9r3h93g7h;
-								pipeline_panic "There was a problem with gzip (for directory '${localhost_taken_source_paths[i]}').";
+								pipeline_panic "There was a problem when archiving directory '${localhost_taken_source_paths[i]}' with tar, or while compressing with gzip.";
 							fi;
 
 						) || exit 1;
@@ -1820,7 +1827,7 @@ LANDING_SCRIPT
 				esac;
 			done;
 
-			[ -f "$HEAVY_OBJECTS_KERNEL_PATH" ] || {
+			testable id_shdgiuehrs [ -f "$HEAVY_OBJECTS_KERNEL_PATH" ] || {
 				pipeline_coverage id_ionrgr93hfv93uhr9;
 				pipeline_panic "The kernel file at '$HEAVY_OBJECTS_KERNEL_PATH' disapeared.";
 			};
@@ -2020,7 +2027,6 @@ LANDING_SCRIPT
 	shift_toplevel_args "$total_scope_args_shift";
 
 	if ! ((bliss_received)) && ! ((ignore_missing_bliss)); then
-		coverage id_2jigj937rhg9hsu4;
 		panic "Sub kernel at remote host did not end blissfully.";
 	fi;
 
@@ -2130,7 +2136,7 @@ command_drop_dir() {
 	fi;
 
 	local absolute_path;
-	absolute_path=$(cd -- "$dropdir_path" && pwd) || {
+	absolute_path=$(testable id_nv39ru9uh3 cd -- "$dropdir_path" && pwd) || {
 		coverage id_nef9uj29gh839hgr;
 		panic "Could not change the current directory to the drop directory '$dropdir_name' at location '$dropdir_path'.  Do we have access?";
 	};
@@ -2158,7 +2164,7 @@ command_drop_dir() {
 					coverage id_dnv9uhr9u3h3u;
 					panic "Cannot overwrite a directory with a file. At '$absolute_path/$current_obj_dest_name'.";
 				};
-				cp -- "${localhost_taken_source_paths[i]}" "$absolute_path/$current_obj_dest_name" || {
+				testable id_asdguier cp -- "${localhost_taken_source_paths[i]}" "$absolute_path/$current_obj_dest_name" || {
 					coverage id_n9284ghu34hdh984h;
 					panic "The cp command ended in error.";
 				};
@@ -2172,7 +2178,7 @@ command_drop_dir() {
 					coverage id_io2ef284hguihguih4;
 					panic "Cannot overwrite a file with a directory. At '$absolute_path/$current_obj_dest_name'.";
 				};
-				cp -r -- "${localhost_taken_source_paths[i]}" "$absolute_path/$current_obj_dest_name" || {
+				testable id_vh9u3rnv39u cp -r -- "${localhost_taken_source_paths[i]}" "$absolute_path/$current_obj_dest_name" || {
 					coverage id_jf2ifj849he984ugh9u34;
 					panic "The cp -r command ended in error.";
 				};
@@ -2203,7 +2209,7 @@ command_drop_dir() {
 						touch -- "$absolute_path/$current_obj_dest_name" || {
 							panic "Could not create file: '$absolute_path/$current_obj_dest_name'.";
 						};
-						read_bin | gzip --stdout -d - > "$absolute_path/$current_obj_dest_name" || {
+						read_bin | testable id_cn3rh39u3g gzip --stdout -d - > "$absolute_path/$current_obj_dest_name" || {
 							coverage id_nef29h4g984hgurhsg94;
 							panic "There was a problem with gzip while writing to '$absolute_path/$current_obj_dest_name'.";
 						};
@@ -2223,23 +2229,22 @@ command_drop_dir() {
 							coverage id_dni3g9hguu934h4;
 							panic "Cannot receive directory because a directory '$absolute_path/$current_obj_dest_name' already exists.";
 						};
-						mkdir -- "$absolute_path/$current_obj_dest_name" || {
+						testable id_nv20h49gh3un mkdir -- "$absolute_path/$current_obj_dest_name" || {
 							coverage id_nd3uru93hg984h;
 							panic "Could not create directory '$absolute_path/$current_obj_dest_name'.";
 						};
 						(
-							cd -- "$absolute_path/$current_obj_dest_name" || {
+							testable id_vj39hgu34 cd -- "$absolute_path/$current_obj_dest_name" || {
 								coverage id_nv39uhg894hg938;
 								panic "Could not change directory into '$absolute_path/$current_obj_dest_name'";
 							};
 
-							read_bin | gzip --stdout -d - | tar -x -f - .;
+							read_bin | testable id_nc92h4u gzip --stdout -d - | testable id_n08h4fu3 tar -x -f - .;
 							pipestatus_save;
-							if ! pipestatus_test 1; then
-								panic "There was a problem with gzip (for directory '$absolute_path/$current_obj_dest_name').";
-							fi;
-							if ! pipestatus_test 2; then
-								panic "There was a problem with tar while extracting archive (for directory '$absolute_path/$current_obj_dest_name').";
+							if ! pipestatus_test 1 || ! pipestatus_test 2; then
+								coverage id_n29h92h4hh489hg;
+								coverage id_nvu3hg984h;
+								panic "There was a problem with gzip, or while extracting with tar (for directory '$absolute_path/$current_obj_dest_name').";
 							fi;
 						) || exit 1;
 					else
@@ -2342,6 +2347,7 @@ command_take() {
 		while IFS="" read -r line || [ -n "$line" ]; do
 			case "$line" in
 				(@panic)
+					rm -f "$temp_messages";
 					panic "handle_incoming_files_and_dirs or generic_message_handler indicated to panic.";
 					;;
 				(*)
