@@ -1049,7 +1049,7 @@ handle_incoming_files_and_dirs() {
 					(@@@@file)
 						testable id_2nufhu4hfui4 [ -f "$local_source_path" ] || {
 							pipeline_coverage id_sduhiuregnjnf;
-							pipeline_panic "AAAA The file '$local_source_path' doesn't exist or is not a file.";
+							pipeline_panic "The file '$local_source_path' doesn't exist or is not a file.";
 						};
 
 						echo "$header";
