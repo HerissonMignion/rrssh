@@ -996,10 +996,10 @@ handle_incoming_files_and_dirs() {
 			if ((is_local)); then
 				case "$header" in
 					(@@@@file)
-						dump_bin < "$local_source_path";
+						gzip --stdout - < "$local_source_path" | dump_bin;
 						;;
 					(@@@@dir)
-						(cd -- "$local_source_path" && tar -c -f - . || echo "") | dump_bin;
+						(cd -- "$local_source_path" && tar -c -f - . || echo "") | gzip --stdout - | dump_bin;
 						;;
 					(*)
 						pipeline_panic "Unknown object '$header'.";
@@ -1022,10 +1022,10 @@ handle_incoming_files_and_dirs() {
 	if ((is_local)); then
 		case "$header" in
 			(@@@@file)
-				cat -- "$local_source_path" > "$temp_holder";
+				cat -- "$local_source_path" | gzip --stdout - > "$temp_holder";
 				;;
 			(@@@@dir)
-				(cd -- "$local_source_path" && tar -c -f - . || echo "") > "$temp_holder";
+				(cd -- "$local_source_path" && tar -c -f - . || echo "") | gzip --stdout - > "$temp_holder";
 				;;
 			(*)
 				rm -f "$temp_holder";
@@ -1047,7 +1047,7 @@ handle_incoming_files_and_dirs() {
 
 				case "$header" in
 					(@@@@file)
-						tee -- "$dest_name" < "$temp_holder" &> /dev/null || {
+						gzip --stdout -d - < "$temp_holder" | tee -- "$dest_name" &> /dev/null || {
 							rm -f "$temp_holder";
 							pipeline_panic "Could not write into file '$dest_name'.";
 						};
@@ -1061,7 +1061,7 @@ handle_incoming_files_and_dirs() {
 							rm -f "$temp_holder";
 							pipeline_panic "Could not change directory into '$dest_name'.";
 						};
-						tar -x -f - . < "$temp_holder" || {
+						gzip --stdout -d - < "$temp_holder" | tar -x -f - . || {
 							rm -f "$temp_holder";
 							pipeline_panic "An error occured while extracting files inside directory '$dest_name'.";
 						};
@@ -1649,7 +1649,7 @@ LANDING_SCRIPT
 						echo @@@@file;
 						dump_bin <<<"${localhost_taken_dest_dropdirs[i]}";
 						dump_bin <<<"${localhost_taken_dest_names[i]}";
-						dump_bin < "${localhost_taken_source_paths[i]}";
+						gzip --stdout - < "${localhost_taken_source_paths[i]}" | dump_bin;
 						;;
 					(d)
 						echo @@@@dir;
@@ -1661,7 +1661,7 @@ LANDING_SCRIPT
 								pipeline_panic "Could not change directory into directory '${localhost_taken_source_paths[i]}.";
 							};
 
-							tar -c -f - . | dump_bin;
+							tar -c -f - . | gzip --stdout - | dump_bin;
 
 						) || exit 1;
 						;;
@@ -2008,7 +2008,7 @@ command_drop_dir() {
 						touch -- "$absolute_path/$current_obj_dest_name" || {
 							panic "Could not create file: '$absolute_path/$current_obj_dest_name'.";
 						};
-						read_bin > "$absolute_path/$current_obj_dest_name";
+						read_bin | gzip --stdout -d - > "$absolute_path/$current_obj_dest_name";
 					else
 						read_bin_pipe_dump_bin > /dev/null;
 					fi;
@@ -2025,7 +2025,7 @@ command_drop_dir() {
 								panic "Could not change directory into '$absolute_path/$current_obj_dest_name'";
 							};
 
-							read_bin | tar -x -f - . || {
+							read_bin | gzip --stdout -d - | tar -x -f - . || {
 								panic "An error occurred while extracting the directory.";
 							};
 						) || exit 1;
@@ -2109,7 +2109,7 @@ command_take() {
 		(take-dir)
 			header_line=@@@@dir;
 			[ -d "$obj_path" ] || {
-				panic "The directory '$obj_path' doesn't exist or is not a directory.";
+n				panic "The directory '$obj_path' doesn't exist or is not a directory.";
 			};
 			# debug "$(bash_realpath "$obj_path")";
 			localhost_taken_types+=("d");
