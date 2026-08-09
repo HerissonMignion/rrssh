@@ -252,6 +252,7 @@ HELP
 }
 
 unimplemented_wishlist() {
+	# shellcheck disable=SC2317
 	cat <<"HELP";
 
 
@@ -397,9 +398,7 @@ testable() {
 	done;
 	"$@";
 }
-
-
-
+testable id_asdgierguirh true;
 
 
 dump_bin() {
@@ -416,11 +415,12 @@ read_line() {
 	read -r line;
 	printf %s "$line";
 }
-read_line_ln() {
-	printf '%s\n' "$(read_line)";
-}
+# read_line_ln() {
+# 	printf '%s\n' "$(read_line)";
+# }
 read_bin() {
-	local first_line=$(read_line);
+	local first_line;
+	first_line=$(read_line);
 	[ "$first_line" == %binary_object ] || return 1;
 	{
 		while IFS="" read -r line || [ -n "$line" ]; do
@@ -431,7 +431,8 @@ read_bin() {
 }
 
 read_bin_pipe_dump_bin() {
-	local first_line=$(read_line);
+	local first_line;
+	first_line=$(read_line);
 	[ "$first_line" == %binary_object ] || return 1;
 	echo "$first_line";
 	local line;
@@ -497,7 +498,7 @@ KERNEL
 
 	declare -f dump_bin;
 	declare -f read_line;
-	declare -f read_line_ln;
+	# declare -f read_line_ln;
 	declare -f read_bin;
 	declare -f read_bin_pipe_dump_bin;
 	declare -f print_kernel;
@@ -526,7 +527,9 @@ send_to_stderr() {
 }
 
 pipeline_send_to_stdout() {
+	# shellcheck disable=SC2317
 	echo @@print_stdout;
+	# shellcheck disable=SC2317
 	dump_bin;
 }
 pipeline_send_to_stderr() {
@@ -535,30 +538,38 @@ pipeline_send_to_stderr() {
 }
 
 echoout() {
+	# shellcheck disable=SC2059,SC2317
 	echo "$@" | send_to_stdout;
 }
 printfout() {
+	# shellcheck disable=SC2059,SC2317
 	printf "$@" | send_to_stdout;
 }
 
 pipeline_echoout() {
+	# shellcheck disable=SC2059,SC2317
 	echo "$@" | pipeline_send_to_stdout;
 }
 pipeline_printfout() {
+	# shellcheck disable=SC2059,SC2317
 	printf "$@" | pipeline_send_to_stdout;
 }
 
 echoerr() {
+	# shellcheck disable=SC2059,SC2317
 	echo "$@" | send_to_stderr;
 }
 printferr() {
+	# shellcheck disable=SC2059 # i actually want a printf to stderr without doing 1>&2
 	printf "$@" | send_to_stderr;
 }
 
 pipeline_echoerr() {
+	# shellcheck disable=SC2059,SC2317
 	echo "$@" | pipeline_send_to_stderr;
 }
 pipeline_printferr() {
+	# shellcheck disable=SC2059
 	printf "$@" | pipeline_send_to_stderr;
 }
 
@@ -573,7 +584,9 @@ error() {
 	printferr 'ERROR: %s ERROR\n' "$@";
 }
 debug() {
+	# shellcheck disable=SC2317
 	true || return 0;
+	# shellcheck disable=SC2317
 	printferr 'DEBUG: %s DEBUG\n' "$@";
 }
 
@@ -583,9 +596,11 @@ pipeline_panic() {
 	exit 1;
 }
 pipeline_error() {
+	# shellcheck disable=SC2317
 	pipeline_printferr 'ERROR: %s ERROR\n' "$@";
 }
 pipeline_debug() {
+	# shellcheck disable=SC2317
 	pipeline_printferr 'DEBUG: %s DEBUG\n' "$@";
 }
 
@@ -594,7 +609,7 @@ pipeline_coverage() {
 	local coverage_id=$1;
 	# enforce that ids begin with "id_" so that they are detectable
 	# with grep.
-	[[ "$coverage_id" == id_* ]] | exit 1;
+	[[ "$coverage_id" == id_* ]] || exit 1;
 	echo @@coverage;
 	dump_bin <<<"$coverage_id";
 }
@@ -635,6 +650,7 @@ pipestatus_save() {
 	PIPESTATUS_BACKUP=("${PIPESTATUS[@]}");
 }
 pipestatus_debug() {
+	# shellcheck disable=SC2317
 	debug "PIPESTATUS_BACKUP: ${PIPESTATUS_BACKUP[*]}";
 }
 # prints the index of the first non-0 exit code, and return with that
@@ -652,7 +668,7 @@ pipestatus_check() {
 	fi;
 	local i;
 	for ((i = 0; i < ${#PIPESTATUS_BACKUP[@]}; i++)); do
-		if ((${PIPESTATUS_BACKUP[i]} > 0)); then
+		if ((PIPESTATUS_BACKUP[i] > 0)); then
 			echo "$i";
 			return "${PIPESTATUS_BACKUP[i]}";
 		fi;
@@ -671,7 +687,7 @@ op_mode=""; # enum of: run scan
 is_root_kernel=0;
 
 # are we suposed to run only one command chain?
-is_one_command_chain_limit=0;
+# is_one_command_chain_limit=0;
 
 # if we have stdin, then we have 2 way communication.
 opt_stdin=0;
@@ -690,7 +706,8 @@ while (($#)); do
 			is_root_kernel=1;
 			;;
 		(--one-command-chain-limit)
-			is_one_command_chain_limit=1;
+			# is_one_command_chain_limit=1;
+			true;
 			;;
 		(--stdin)
 			opt_stdin=1;
@@ -717,14 +734,12 @@ epoll_panic() {
 		case "$line" in
 			(@continue)
 				return 1;
-				break;
 				;;
 			(*)
 				return 0;
-				break;
 				;;
 		esac;
-		break;
+		# break;
 	done 0<&5;
 }
 epoll_panic && {
@@ -993,7 +1008,8 @@ sanitize_path() {
 # job.  i wrote this function because i've seen systems that dont have
 # this command.	
 bash_realpath() {
-	local input_path=$(sanitize_path "$1");
+	local input_path;
+	input_path=$(sanitize_path "$1");
 	if [ "$input_path" == / ]; then
 		echo /;
 		return 0;
@@ -1099,7 +1115,11 @@ handle_incoming_files_and_dirs() {
 		return 0;
 	fi;
 
-	local temp_holder=$(mktemp);
+	local temp_holder;
+	temp_holder=$(mktemp) || {
+		rm -f -- "$temp_holder";
+		pipeline_panic "mktemp failed. Could not create temporary file to holde the file or directory that we are receiving.";
+	};
 	if ((is_local)); then
 		case "$header" in
 			(@@@@file)
@@ -1148,6 +1168,11 @@ handle_incoming_files_and_dirs() {
 					rm -f "$temp_holder";
 					pipeline_coverage id_bnuiergjn3uirfgi3ugr;
 					pipeline_panic "Could not change directory into dropdir '${localhost_dropdirs_paths[i]}'.";
+				};
+
+				[ -f "$dest_name" ] || [ -d "$dest_name" ] && {
+					rm -f "$temp_holder";
+					pipeline_panic "There is already a file or directory called '$dest_name' in the drop directory '$dest_dropdir'.";
 				};
 
 				case "$header" in
@@ -1386,7 +1411,8 @@ current_command_must_run_p() {
 }
 
 command_command() {
-	local arg0=$(peek_toplevel_args);
+	local arg0;
+	arg0=$(peek_toplevel_args);
 	shift_toplevel_args;
 
 	# command needs either a string for system() or [ ], so one argument obligatory.
@@ -1394,7 +1420,8 @@ command_command() {
 		panic "The command 'command' must be provided with an argument.";
 	};
 
-	local arg1=$(peek_toplevel_args);
+	local arg1;
+	arg1=$(peek_toplevel_args);
 	local string_command="";
 	local is_string=1;
 	local argv=();
@@ -1450,7 +1477,8 @@ command_command() {
 
 
 command_fork() {
-	local command_name=$(peek_toplevel_args);
+	local command_name;
+	command_name=$(peek_toplevel_args);
 	shift_toplevel_args;
 
 	# TODO: if forking locally, then dont reprint all files, put a
@@ -1514,12 +1542,19 @@ command_fork() {
 
 	# pre-execution analysis
 	local total_scope_args_shift=0;
-	local total_scope_args_shift_provided=0;
+	# local total_scope_args_shift_provided=0;
 	local sub_analyser_bliss=0;
 
 
-	local sub_analyser_kernel_path=$(mktemp);
-	local analysis_output=$(mktemp);
+	local sub_analyser_kernel_path;
+	sub_analyser_kernel_path=$(mktemp) || {
+		panic "mktemp failed";
+	};
+	local analysis_output;
+	analysis_output=$(mktemp) || {
+		rm -f -- "$sub_analyser_kernel_path";
+		panic "mktemp failed";
+	};
 	(
 		begin_basic_fork;
 
@@ -1540,16 +1575,18 @@ command_fork() {
 	local line;
 	local child_dropdir;
 	local subkernel_child_dropdirs=();
+	# shellcheck disable=SC2094
 	while IFS="" read -r line || [ -n "$line" ]; do
 		case "$line" in
 			(@@total_toplevel_shift)
-				total_scope_args_shift_provided=1;
+				# total_scope_args_shift_provided=1;
 				total_scope_args_shift=$(read_bin);
 				;;
 			(@bliss)
 				sub_analyser_bliss=1;
 				;;
 			(@panic)
+				# shellcheck disable=SC2094
 				rm -f "$analysis_output";
 				panic "Sub kernel panicked during analysis.";
 				;;
@@ -1565,6 +1602,7 @@ command_fork() {
 				fi;
 				;;
 			(*)
+				# shellcheck disable=SC2094
 				rm -f "$analysis_output";
 				panic "Unknown message during scope analysis: '$line'.";
 				;;
@@ -1581,8 +1619,15 @@ command_fork() {
 
 
 
-	local subkernel_stdin=$(mktemp_fifo);
-	local subkernel_stdout=$(mktemp_fifo);
+	local subkernel_stdin;
+	subkernel_stdin=$(mktemp_fifo) || {
+		panic "mktemp_fifo failed";
+	};
+	local subkernel_stdout;
+	subkernel_stdout=$(mktemp_fifo) || {
+		rm -f -- "$subkernel_stdin";
+		panic "mktemp_fifo failed";
+	};
 
 	(
 		exec 3>&- 5>&-;
@@ -1869,7 +1914,12 @@ LANDING_SCRIPT
 	) 1>&6;
 
 
-	local temp_com_file=$(mktemp);
+	local temp_com_file;
+	temp_com_file=$(mktemp) || {
+		rm -f -- "$subkernel_stdin";
+		rm -f -- "$subkernel_stdout";
+		panic "mktemp failed";
+	};
 	(
 
 		# we handle file/folder transfers and other things here so
@@ -2044,7 +2094,8 @@ command_make_command_fail() {
 		panic "The command 'make-command-fail' needs 1 argument.";
 	};
 
-	local id=$(peek_toplevel_args);
+	local id;
+	id=$(peek_toplevel_args);
 	shift_toplevel_args;
 
 	current_command_must_run_p || return 0;
@@ -2054,7 +2105,8 @@ command_make_command_fail() {
 
 
 command_cd() {
-	local arg0=$(peek_toplevel_args);
+	local arg0;
+	arg0=$(peek_toplevel_args);
 	shift_toplevel_args;
 
 	local path;
@@ -2111,13 +2163,15 @@ command_drop_dir() {
 	any_toplevel_args_remaining || {
 		panic "The command 'drop-dir' needs 2 arguments.";
 	};
-	local dropdir_name=$(peek_toplevel_args);
+	local dropdir_name;
+	dropdir_name=$(peek_toplevel_args);
 	shift_toplevel_args;
 
 	any_toplevel_args_remaining || {
 		panic "The command 'drop-dir' needs 2 arguments.";
 	};
-	local dropdir_path=$(peek_toplevel_args);
+	local dropdir_path;
+	dropdir_path=$(peek_toplevel_args);
 	shift_toplevel_args;
 
 	if [ "$op_mode" == scan ]; then
@@ -2268,25 +2322,29 @@ command_drop_dir() {
 
 
 command_take() {
-	local arg0=$(peek_toplevel_args);
+	local arg0;
+	arg0=$(peek_toplevel_args);
 	shift_toplevel_args;
 
 	any_toplevel_args_remaining || {
 		panic "The command take needs 3 arguments.";
 	};
-	local obj_path=$(peek_toplevel_args);
+	local obj_path;
+	obj_path=$(peek_toplevel_args);
 	shift_toplevel_args;
 
 	any_toplevel_args_remaining || {
 		panic "The command take needs 3 arguments.";
 	};
-	local dest_name=$(peek_toplevel_args);
+	local dest_name;
+	dest_name=$(peek_toplevel_args);
 	shift_toplevel_args;
 
 	any_toplevel_args_remaining || {
 		panic "The command take needs 3 arguments.";
 	};
-	local dest_dropdir=$(peek_toplevel_args);
+	local dest_dropdir;
+	dest_dropdir=$(peek_toplevel_args);
 	shift_toplevel_args;
 
 
@@ -2337,20 +2395,26 @@ command_take() {
 			;;
 	esac;
 
-	local temp_messages=$(mktemp);
+	local temp_messages;
+	temp_messages=$(mktemp) || {
+		panic "mktemp failed";
+	};
 	(
 	    handle_incoming_files_and_dirs "$header_line" 1 "$dest_dropdir" "$dest_name" "$obj_path";
 	) | generic_message_handler > "$temp_messages";
 
 	local line;
+	# shellcheck disable=SC2094
 	{
 		while IFS="" read -r line || [ -n "$line" ]; do
 			case "$line" in
 				(@panic)
+					# shellcheck disable=SC2094
 					rm -f "$temp_messages";
 					panic "handle_incoming_files_and_dirs or generic_message_handler indicated to panic.";
 					;;
 				(*)
+					# shellcheck disable=SC2094
 					rm -f "$temp_messages";
 					panic "Unknown message '$line' while reading the output of handle_incoming_files_and_dirs.";
 					;;
@@ -2588,7 +2652,8 @@ toplevel_commands_provided=0;
 read_toplevel_commands_from_file() {
 	local filepath=$1;
 	local current_line_number=1;
-	local output_file=$(mktemp);
+	local output_file;
+	output_file=$(mktemp);
 	local temp_script_path;
 	local line;
 	local word;
@@ -2619,6 +2684,7 @@ SCRIPT
 			parsed_word="$(
 				# subshell for safety.
 				eval "output=$word";
+				# shellcheck disable=SC2154
 				printf %s "$output";
 			)";
 			toplevel_commands+=("$parsed_word");
@@ -2669,21 +2735,29 @@ begin_root_kernel() {
 run_root_kernel_mode() {
 	local mode=$1;
 
-	local temp_kernel_path=$(mktemp);
+	local temp_kernel_path;
+	temp_kernel_path=$(mktemp);
 	(
 
 		begin_root_kernel;
 		echo @eof;
 
 	) > "$temp_kernel_path";
-	local temp_com_file=$(mktemp);
-	local rootkernel_stdin=$(mktemp_fifo);
-	local rootkernel_stdout=$(mktemp_fifo);
+	local temp_com_file;
+	temp_com_file=$(mktemp);
+	local rootkernel_stdin;
+	rootkernel_stdin=$(mktemp_fifo);
+	local rootkernel_stdout;
+	rootkernel_stdout=$(mktemp_fifo);
 	(
 		trap_cmd() {
+			# shellcheck disable=SC2317
 			echo @panic > "$rootkernel_stdin";
+			# shellcheck disable=SC2317
 			echo @panic > "$rootkernel_stdin";
+			# shellcheck disable=SC2317
 			echo @panic > "$rootkernel_stdin";
+			# shellcheck disable=SC2317
 			echo @panic > "$rootkernel_stdin";
 		}
 		# trap "trap_cmd;" SIGTERM SIGKILL SIGINT SIGQUIT;
@@ -2702,22 +2776,29 @@ run_root_kernel_mode() {
 		trap_ran=0;
 
 		trap_cmd() {
+			# shellcheck disable=SC2317
 			trap_ran=1;
+			# shellcheck disable=SC2317
 			local i;
 			# ensure that we send @panic even if we desync with the
 			# messages and dont catch any future @epoll_panic.
+			# shellcheck disable=SC2317
 			for ((i = 0; i < 10; i++)); do
+			# shellcheck disable=SC2317
 				echo @panic;
 			done 1>&6;
+			# shellcheck disable=SC2317
 			must_panic=1;
+			# shellcheck disable=SC2317
 			1>&2 echo;
+			# shellcheck disable=SC2317
 			1>&2 echo "Triggering panic at earliest opportunity.";
+			# shellcheck disable=SC2317
 			1>&2 echo;
 		}
 
 		# trap "trap_cmd;" SIGTERM SIGKILL SIGINT SIGQUIT;
 		trap "echo TERM; trap_cmd;" SIGTERM;
-		trap "echo KILL; trap_cmd;" SIGKILL;
 		trap "echo INT; trap_cmd;" SIGINT;
 		trap "echo QUIT; trap_cmd;" SIGQUiT;
 
@@ -2843,7 +2924,8 @@ main() {
 	local cmd=$1;
 
 	if ((opt_file)); then
-		local temp_script_file_path=$(mktemp);
+		local temp_script_file_path;
+		temp_script_file_path=$(mktemp);
 		if [ "$arg_file" == "-" ]; then
 		    cat > "$temp_script_file_path";
 		else
@@ -2874,14 +2956,17 @@ main() {
 			if ((opt_t)); then
 				echo "${#toplevel_commands[@]}";
 			else
-				local printf_arg=$(((opt_l)) && echo '%s\n' || echo '%q\n');
+				local printf_arg='%q\n';
+				((opt_l)) && printf_arg='%s\n';
 				if ((opt_n)); then
 					((arg_n < ${#toplevel_commands[@]})) || {
 						1>&2 echo "The value provided to -n is larger than the number of tokens.";
 						return 1;
 					};
+					# shellcheck disable=SC2059
 					printf "$printf_arg" "${toplevel_commands[$arg_n]}";
 				else
+					# shellcheck disable=SC2059
 					printf "$printf_arg" "${toplevel_commands[@]}";
 				fi;
 			fi;
