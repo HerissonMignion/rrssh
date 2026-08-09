@@ -2,7 +2,7 @@
 
 command [ ls ]
 command [ echo ]
-command [ ls -lh / ]
+host localhost [ command [ ls -lh --color=always / ] ]
 command [ echo ]
 command [ df ]
 
