@@ -11,7 +11,7 @@ main() {
 
 	../with-path.sh bats *.fast.bats;
 
-	grep -Po '\bcoverage id_[a-zA-Z0-9_\-]+\b' ../rrssh | awk '{ print $2; }' |
+	grep -Po '\b(pipeline_)?coverage id_[a-zA-Z0-9_\-]+\b' ../rrssh | awk '{ print $2; }' |
 		while IFS="" read -r line || [ -n "$line" ]; do
 			grep -xFq "$line" "$coverage_file" || {
 				echo "Not found: $line";

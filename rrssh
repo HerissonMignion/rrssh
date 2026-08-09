@@ -1011,6 +1011,7 @@ handle_incoming_files_and_dirs() {
 			
 		else
 			if ! ((is_local)); then
+				pipeline_coverage id__must_show_up___children_should_not_send_files_and_dirs_that_parents_dont_need;
 				read_bin_pipe_dump_bin > /dev/null;
 			fi;
 		fi;
@@ -1481,6 +1482,7 @@ LANDING_SCRIPT
 			declare -f dump_bin;
 			declare -f read_line;
 			declare -f read_bin;
+			declare -f read_bin_pipe_dump_bin;
 			declare -f testable;
 			declare -f pipeline_coverage;
 
@@ -1527,6 +1529,30 @@ read_bin | testable id_fdhv9qh5gf tee "$kernel_file_path" &> /dev/null || {
 	exit 1;
 };
 
+# we receive the heavy objects separetaly so that they are not
+# uselessly encoded through base64 2 times, which would further their
+# transmission size on a network.
+
+line="";
+while IFS="" read -r line || [ -n "$line" ]; do
+	case "$line" in
+		(@eof)
+			echo @eof >> "$kernel_file_path";
+			break;
+			;;
+		(@@@@file|@@@@dir)
+			echo "$line" >> "$kernel_file_path";
+			read_bin_pipe_dump_bin >> "$kernel_file_path";
+			read_bin_pipe_dump_bin >> "$kernel_file_path";
+			read_bin_pipe_dump_bin >> "$kernel_file_path";
+			;;
+		(*)
+			error "Unknown message '$line' received in stdin during duplication.";
+			rm -f "$kernel_file_path";
+			exit 1;
+			;;
+	esac;
+done;
 
 
 testable id_asudhfisuh bash "$kernel_file_path" -- "${call_args[@]}";
@@ -1564,50 +1590,53 @@ LANDING_SCRIPT
 
 
 	(
-		begin_basic_fork;
+		(
+			begin_basic_fork;
 
 
 
-		echo @@toplevel_scope_closing_token;
-		dump_bin <<<"$scope_closing_token";
-		if ! [ "$scope_opening_token" == ":" ]; then
-			echo @consume_toplevel_scope_closing_token;
-		fi;
+			echo @@toplevel_scope_closing_token;
+			dump_bin <<<"$scope_closing_token";
+			if ! [ "$scope_opening_token" == ":" ]; then
+				echo @consume_toplevel_scope_closing_token;
+			fi;
 
-		echo @@rrssh_host_depth;
-		dump_bin <<<$((rrssh_host_depth + 1));
+			echo @@rrssh_host_depth;
+			dump_bin <<<$((rrssh_host_depth + 1));
 
 
-		# for optimization of transfers over the network, we send all
-		# dirnames that we need and that our parents need.
-		for dropdir_name in "${parents_dropdirs[@]}"; do
-			echo @@parent_dropdir;
-			dump_bin <<<"$dropdir_name";
-		done;
-		if ! ((is_scope_command)); then
-			for dropdir_name in "${localhost_dropdirs_names[@]}"; do
+			# for optimization of transfers over the network, we send all
+			# dirnames that we need and that our parents need.
+			for dropdir_name in "${parents_dropdirs[@]}"; do
 				echo @@parent_dropdir;
 				dump_bin <<<"$dropdir_name";
 			done;
-		else
-			echo @@heavy_objects_kernel_path;
-			dump_bin <<<"$HEAVY_OBJECTS_KERNEL_PATH";
+			if ! ((is_scope_command)); then
+				for dropdir_name in "${localhost_dropdirs_names[@]}"; do
+					echo @@parent_dropdir;
+					dump_bin <<<"$dropdir_name";
+				done;
+			else
+				echo @@heavy_objects_kernel_path;
+				dump_bin <<<"$HEAVY_OBJECTS_KERNEL_PATH";
 
-			for ((i = 0; i < ${#localhost_dropdirs_names[@]}; i++)); do
-				echo @@@add_dropdir;
-				dump_bin <<<"${localhost_dropdirs_names[i]}";
-				dump_bin <<<"${localhost_dropdirs_paths[i]}";
-			done;
-			for ((i = 0; i < ${#localhost_taken_types[@]}; i++)); do
-				echo @@@@@take_obj;
-				dump_bin <<<"${localhost_taken_dest_dropdirs[i]}";
-				dump_bin <<<"${localhost_taken_types[i]}";
-				dump_bin <<<"${localhost_taken_dest_names[i]}";
-				dump_bin <<<"${localhost_taken_source_paths[i]}";
-			done;
-		fi;
+				for ((i = 0; i < ${#localhost_dropdirs_names[@]}; i++)); do
+					echo @@@add_dropdir;
+					dump_bin <<<"${localhost_dropdirs_names[i]}";
+					dump_bin <<<"${localhost_dropdirs_paths[i]}";
+				done;
+				for ((i = 0; i < ${#localhost_taken_types[@]}; i++)); do
+					echo @@@@@take_obj;
+					dump_bin <<<"${localhost_taken_dest_dropdirs[i]}";
+					dump_bin <<<"${localhost_taken_types[i]}";
+					dump_bin <<<"${localhost_taken_dest_names[i]}";
+					dump_bin <<<"${localhost_taken_source_paths[i]}";
+				done;
+			fi;
 
-		echo @end_of_header;
+			echo @end_of_header;
+
+		) | dump_bin;
 
 		# TODO: make everything safer
 
@@ -1667,7 +1696,7 @@ LANDING_SCRIPT
 
 		echo @eof;
 
-	) | dump_bin 1>&6;
+	) 1>&6;
 
 
 	local temp_com_file=$(mktemp);
@@ -2103,6 +2132,9 @@ command_take() {
 
 if false; then
 	coverage id__if_this_one_shows_up__then_coverage_detection_works;
+fi;
+if true && ! ((is_root_kernel)); then
+	coverage id__if_this_one_shows_up__then_coverage_detection_doesnt_work;
 fi;
 
 main_execution_loop() {
