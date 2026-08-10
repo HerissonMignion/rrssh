@@ -28,41 +28,51 @@ SYNOPSIS
 
 DESCRIPTION
 
-	An ansible-like automation tool that uses ssh to jump through any
+	An Ansible-like automation tool that uses SSH to jump through any
 	number of hosts to run commands and transfer files and directories
-	along the way.  Its commands are a basic non-turing complete
-	shell-like scripting language provided in arguments or in a file.
-	A strong panic mecanism will stop the execution at any unexpected
-	failures, either external commands exiting with an unhandled non-0
-	code or an internal rrssh failure.
+	along the way.  Its commands are a basic shell-like scripting
+	language provided via arguments or a file.  The panic mechanism
+	will stop its execution on any unhandled failure in the script, or
+	an internal rrssh failure.
 
 	The only requirements for the target hosts are an old bash version
 	and basic utilities.
 
 SAFETY CONSIDERATIONS
 
-	Rrssh is a bash script that duplicates itself through ssh.  To
-	enforce the termination of all rrssh scripts, its language is not
-	turing complete and it doesn't allow infinite loops.
+	rrssh is a bash script that duplicates itself via ssh.  To
+	guarentee the termination of all rrssh scripts, its language is
+	not Turing-complete and does not allow infinite loops.  The whole
+	syntax of the script is validated before execution starts, and the
+	syntax is validated by the same code that executes the script to
+	ensure identical interpretation of the code.
 
-	In some occasions, such as before and after each rrssh commands,
-	rrssh sends a message from its current location up to the "root"
-	command, which replies a message to continue or panic.  This
-	mecanism allows Ctrl-C on the "root" command to recursively kill
-	its execution (though it cannot stop an external command that
-	already began).  This mecanism also forces rrssh to crash if a
-	host becomes unreachable for any reason.  Worst case scenario is
-	that rrssh will hang idle, and you can kill its processes.
+	In some occasions, such as before and after each rrssh command, a
+	message is sent from its current location up to the "root"
+	command, which replies with a message to either continue or panic.
+	This mechanism (internally called epoll_panic) allows Ctrl-C on
+	the "root" command to recursively kill its execution (though not
+	before any external command is completed and a new message is
+	sent).  This mecanism also forces rrssh to crash if any host in
+	the "chain" becomes unreachable for any reason.  Worst case
+	scenario would be that rrssh will hang idle infinitely instead of
+	dying.  An additionnal crashing mechanism is that stderr is keept
+	connected at all times up to the "root" command, and rrssh will
+	attempt to write trash data during long operations in case a
+	network failure with a parent host eventually leads to receiving a
+	SIGPIPE, thus crashing faster.
 
-	Since the beginning, rrssh has a first class panic system that
-	immediately stops its execution at any failure.  The panic system
-	was not an afterthought.  Rrssh is also built to be testable and
-	its test suite is extensive.  For example, the test suite performs
-	fault injection to verify that all important error paths
-	successfuly triggers the panic mecanism and that no latter
-	commands were ran.  Rrssh has a missing code coverage detection
-	capability to verify that there is a least one test for all
-	important error paths.
+	TODO: make sure que j'ai bien implémenté les écritures dans fd 2.
+
+	From the beginning, rrssh has a first-class panic system that
+	immediately stops its execution when triggered.  The panic system
+	was not an afterthought.  rrssh is also built to be highly
+	testable, and its test suite is extensive.  For example, the test
+	suite performs fault injection to verify that all important error
+	paths successfuly trigger the panic mechanism and that no further
+	commands are executed.  rrssh includes a missing code coverage
+	detection capability to verify that there is a least one test for
+	all important error paths.
 
 	No AI is used in the development of rrssh to ensure quality.
 
