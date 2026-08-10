@@ -36,14 +36,35 @@ DESCRIPTION
 	failures, either external commands exiting with an unhandled non-0
 	code or an internal rrssh failure.
 
-	Rrssh is a bash script that implements a recursive scripting
-	language.  Rrssh is, in most part, a bash "kernel" that duplicates
-	itself locally or through an ssh connection.  Because of its
-	nature, rrssh has an extensive test suite to ensure its
-	reliability.
-
 	The only requirements for the target hosts are an old bash version
 	and basic utilities.
+
+SAFETY CONSIDERATIONS
+
+	Rrssh is a bash script that duplicates itself through ssh.  To
+	enforce the termination of all rrssh scripts, its language is not
+	turing complete and it doesn't allow infinite loops.
+
+	In some occasions, such as before and after each rrssh commands,
+	rrssh sends a message from its current location up to the "root"
+	command, which replies a message to continue or panic.  This
+	mecanism allows Ctrl-C on the "root" command to recursively kill
+	its execution (though it cannot stop an external command that
+	already began).  This mecanism also forces rrssh to crash if a
+	host becomes unreachable for any reason.  Worst case scenario is
+	that rrssh will hang idle, and you can kill its processes.
+
+	Since the beginning, rrssh has a first class panic system that
+	immediately stops its execution at any failure.  The panic system
+	was not an afterthought.  Rrssh is also built to be testable and
+	its test suite is extensive.  For example, the test suite performs
+	fault injection to verify that all important error paths
+	successfuly triggers the panic mecanism and that no latter
+	commands were ran.  Rrssh has a missing code coverage detection
+	capability to verify that there is a least one test for all
+	important error paths.
+
+	No AI is used in the development of rrssh to ensure quality.
 
 MAIN COMMANDS
 
@@ -138,7 +159,7 @@ COMMANDS
 	sudo-su <user> : <commands>...
 
 		Same as the host command, but switches user on the same
-		machine instead.
+		host instead.
 
 	[ <commands>... ]
 
@@ -159,6 +180,11 @@ COMMANDS
 	print <text>
 
 		Print a line of text to stdout.
+
+	panic <text>
+
+		Triggers rrssh's panic mecanism with the given message.  This
+		command makes the execution stop.
 
 	cd <path>
 	home
@@ -233,6 +259,13 @@ COMMANDS USED BY RRSSH'S TEST SUITE
 		a command fail to validate the behavior of the error paths.
 		This will be in effect only for the current scope and all
 		child scopes.
+
+	kernel-inner-function [--] [<arguments>]...
+
+		Do not use this.  This is intended for the test suite.
+		Instead of running the main loop, call an internal kernel
+		function, print its output and return its exit code.  This is
+		used for helper functions that don't have side effects.
 
 ENVIRONMENT VARIABLES USED FOR DEVELOPMENT
 
@@ -342,6 +375,9 @@ while (($#)); do
 			opt_script_provided=1;
 			arg_script=("$@");
 			set --;
+			break;
+			;;
+		(--)
 			break;
 			;;
 		(-f|--file)
@@ -681,7 +717,10 @@ pipestatus_test() {
 
 
 # operation mode
-op_mode=""; # enum of: run scan
+op_mode=""; # enum of: run scan kernel-inner-function
+
+# kernel-inner-function mode allows the test suite to call an internal
+# function directly and get its output and its exit code.
 
 # are we the first kernel?  therefore we dont have a parent scope.
 is_root_kernel=0;
@@ -692,6 +731,7 @@ is_root_kernel=0;
 # if we have stdin, then we have 2 way communication.
 opt_stdin=0;
 
+kernel_inner_function_args=();
 
 
 while (($#)); do
@@ -870,6 +910,9 @@ load_eof_values() {
 					echocom @@coverage;
 					read_bin_pipe_dump_bin 1>&3;
 					;;
+				(@@kernel_inner_function_arg)
+					kernel_inner_function_args+=("$(read_bin)");
+					;;
 				(*)
 					panic "Unknown object in kernel dump: '$object_type'.";
 					;;
@@ -990,8 +1033,17 @@ begin_basic_fork() {
 
 
 
+
+identity_function() {
+	local ret=$1;
+	shift;
+	printfout '%s\n' "$@";
+	return "$ret";
+}
+
 sanitize_path() {
 	local ret=$1;
+	[ -z "$ret" ] && return 1;
 	# MAYBE TODO: write this "correctly" with temp variables.
 	local i;
 	for ((i = 0; i < 20; i++)); do
@@ -1748,6 +1800,9 @@ LANDING_SCRIPT
 			cmd+=(sudo);
 		fi;
 		if ((is_host_command)); then
+			# cmd+=(ssh -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -- "$arg_destination");
+			# TODO: check ssh options and compare across version and
+			# systems what is available.
 			cmd+=(ssh -o ConnectTimeout=10 -- "$arg_destination");
 		elif ((is_su_command)); then
 			if ! ((opt_fake_su)); then
@@ -2025,7 +2080,7 @@ LANDING_SCRIPT
 				"Is an ssh key missing?"
 				"Is ssh, su, or sudo prompting for a password?"
 				"Is the destination resolving and reachable?"
-				"Is there any spelling misatke?"
+				"Is there any spelling mistake?"
 			);
 		fi;
 	elif ! ((landing_start_received)); then
@@ -2036,7 +2091,7 @@ LANDING_SCRIPT
 			"Is an ssh key missing?"
 			"Is ssh, su, or sudo prompting for a password?"
 			"Is the destination resolving and reachable?"
-			"Is there any spelling misatke?"
+			"Is there any spelling mistake?"
 		);
 	elif ! ((kernel_start_received)); then
 		coverage id_39rgh39rghurg3hrgur;
@@ -2425,6 +2480,35 @@ command_take() {
 	rm -f "$temp_messages";
 }
 
+command_print() {
+	shift_toplevel_args;
+
+	any_toplevel_args_remaining || {
+		panic "The command print needs 1 argument.";
+	};
+	local message;
+	message=$(peek_toplevel_args);
+	shift_toplevel_args;
+
+	current_command_must_run_p || return 0;
+
+	printfout '%s\n' "$message";
+}
+
+command_panic() {
+	shift_toplevel_args;
+
+	any_toplevel_args_remaining || {
+		panic "The command print needs 1 argument.";
+	};
+	local message;
+	message=$(peek_toplevel_args);
+	shift_toplevel_args;
+
+	current_command_must_run_p || return 0;
+
+	panic "User triggered panic:" "$message";
+}
 
 
 if false; then
@@ -2519,6 +2603,14 @@ main_execution_loop() {
 				command_take;
 				current_command_rc=$?;
 				;;
+			(print)
+				command_print;
+				current_command_rc=$?;
+				;;
+			(panic)
+				command_panic;
+				current_command_rc=$?;
+				;;
 			(debug)
 				shift_toplevel_args;
 				if current_command_must_run_p; then
@@ -2528,7 +2620,7 @@ main_execution_loop() {
 			(delim)
 				shift_toplevel_args;
 				if current_command_must_run_p; then
-					echoout "====";
+					echoout "==== ($rrssh_fork_depth $(hostname))";
 				fi;
 				;;
 			(pwd)
@@ -2623,15 +2715,33 @@ main_execution_loop() {
 }
 
 
+main_kernel_inner_function() {
+
+	"${kernel_inner_function_args[@]}" |& send_to_stdout;
+	pipestatus_save;
+
+	echocom @@exitcode;
+	dump_bin <<<"$(pipestatus_check 0)" 1>&3;
+
+}
+
 main() {
 	load_eof_values;
 
-	main_execution_loop;
+	case "$op_mode" in
+		(kernel-inner-function)
+		    main_kernel_inner_function;
+			;;
+		(*)
+			main_execution_loop;
 
-	if ! ((is_root_kernel)); then
-		echocom @@total_toplevel_shift;
-		dump_bin <<<"$total_toplevel_args_shift_count" 1>&3;
-	fi;
+			if ! ((is_root_kernel)); then
+				echocom @@total_toplevel_shift;
+				dump_bin <<<"$total_toplevel_args_shift_count" 1>&3;
+			fi;
+			;;
+	esac;
+
 	echocom @bliss;
 }
 
@@ -2648,6 +2758,8 @@ KERNEL
 # THE script to be executed.
 toplevel_commands=();
 toplevel_commands_provided=0;
+
+kernel_inner_function_args=();
 
 read_toplevel_commands_from_file() {
 	local filepath=$1;
@@ -2707,7 +2819,8 @@ begin_root_kernel() {
 	print_kernel;
 	echo;
 	echo "###;;;";
-	
+
+	local toplevel_arg;
 	for toplevel_arg in "${toplevel_commands[@]}"; do
 		echo @@toplevel_arg;
 		dump_bin <<<"$toplevel_arg";
@@ -2728,6 +2841,13 @@ begin_root_kernel() {
 	dump_bin <<<"0";
 	echo @@rrssh_host_depth;
 	dump_bin <<<"0";
+
+	local arg;
+	for arg in "${kernel_inner_function_args[@]}"; do
+		echo @@kernel_inner_function_arg;
+		dump_bin <<<"$arg";
+	done;
+	
 	
 	echo @end_of_header;
 }
@@ -2895,6 +3015,10 @@ run_root_kernel_mode() {
 		fi;
 	fi;
 
+	if [ "$mode" == kernel-inner-function ] && ((exitcode_received)); then
+		return "$exitcode";
+	fi;
+
 	if ! ((bliss_received)); then
 		1>&2 echo "PROBLEM: The root subkernel did not end blissfully";
 		return 1;
@@ -2914,6 +3038,11 @@ command_run() {
 	command_check || return 1;
 
 	run_root_kernel_mode run;
+}
+
+command_kernel_inner_function() {
+	kernel_inner_function_args=("$@");
+	run_root_kernel_mode kernel-inner-function;
 }
 
 main() {
@@ -2947,6 +3076,9 @@ main() {
 			;;
 		(check)
 			command_check;
+			;;
+		(kernel-inner-function)
+			command_kernel_inner_function "$@";
 			;;
 		(print)
 			((toplevel_commands_provided)) || {

@@ -115,9 +115,47 @@ SCRIPT
 	assert_output --partial asdf;
 }
 
+@test "print command works" {
+	run rrssh run --- print asdf;
+	assert_success;
+	assert_output --partial asdf;
 
+	run rrssh run --- host localhost [ false and print asdf print qwer ] or print ffgf;
+	assert_success;
+	refute_output --partial asdf;
+	refute_output --partial qwer;
+	assert_output --partial ffgf;
+}
 
+@test "no obligatory linefeeds appended after commands" {
+	run rrssh run --- [ --- echo -n asdf --- --- echo -n qwer --- --- echo -n ffgf --- ];
+	assert_success;
+	assert_output --partial asdfqwerffgf;
+}
 
+@test "panic command works" {
+	run rrssh run --- panic asdf;
+	assert_failure;
+	assert_output --partial asdf;
+
+	run rrssh run --- try false and panic msg;
+	assert_success;
+	refute_output --partial msg;
+
+	run rrssh run --- try host localhost [ try panic asdf or print ffgf ] or print qwer;
+	assert_failure;
+	assert_output --partial asdf;
+	refute_output --partial qwer;
+	refute_output --partial ffgf;
+
+	run rrssh run --- print asdf try false and panic;
+	assert_failure;
+	refute_output --partial asdf;
+
+	run rrssh run --- try false and panic asdf;
+	assert_success;
+	refute_output --partial asdf;
+}
 
 
 
