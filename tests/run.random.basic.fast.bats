@@ -13,6 +13,97 @@ teardown() {
 }
 
 
+@test "-o option works on host commands" {
+	run rrssh run --- host;
+	assert_failure;
+
+	run rrssh run --- host or print asdf;
+	assert_failure;
+	refute_output --partial asdf;
+
+	run rrssh run --- host -o;
+	assert_failure;
+
+	run rrssh run --- host -o Port=22;
+	assert_failure;
+
+	run rrssh run --- host localhost -o Port=22;
+	assert_failure;
+
+	run rrssh run --- host localhost -o Port=22 :;
+	assert_success;
+
+	run rrssh run --- host localhost -o Port=22 : print;
+	assert_failure;
+
+	run rrssh run --- host localhost -o Port=22 : print asdf;
+	assert_success;
+	assert_output --partial asdf;
+
+	run rrssh run --- host -o Port=22 localhost : print asdf;
+	assert_failure;
+	refute_output --partial asdf;
+
+	run rrssh run --- host localhost -o Port=22 [ print ];
+	assert_failure;
+
+	run rrssh run --- host localhost -o Port=22 [ print asdf ];
+	assert_success;
+	assert_output --partial asdf;
+
+	run rrssh run --- host -o Port=22 localhost [ print asdf ];
+	assert_failure;
+	refute_output --partial asdf;
+
+
+
+
+	
+	run rrssh run --- host localhost : host;
+	assert_failure;
+
+	run rrssh run --- host localhost : host or print asdf;
+	assert_failure;
+	refute_output --partial asdf;
+
+	run rrssh run --- host localhost : host -o;
+	assert_failure;
+
+	run rrssh run --- host localhost : host -o Port=22;
+	assert_failure;
+
+	run rrssh run --- host localhost : host localhost -o Port=22;
+	assert_failure;
+
+	run rrssh run --- host localhost : host localhost -o Port=22 :;
+	assert_success;
+
+	run rrssh run --- host localhost : host localhost -o Port=22 : print;
+	assert_failure;
+
+	run rrssh run --- host localhost : host localhost -o Port=22 : print asdf;
+	assert_success;
+	assert_output --partial asdf;
+
+	run rrssh run --- host localhost : host -o Port=22 localhost : print asdf;
+	assert_failure;
+	refute_output --partial asdf;
+
+	run rrssh run --- host localhost : host localhost -o Port=22 [ print ];
+	assert_failure;
+
+	run rrssh run --- host localhost : host localhost -o Port=22 [ print asdf ];
+	assert_success;
+	assert_output --partial asdf;
+
+	run rrssh run --- host localhost : host -o Port=22 localhost [ print asdf ];
+	assert_failure;
+	refute_output --partial asdf;
+
+	run rrssh --fake-su run --- su charles -o Port=22 [ print asdf ];
+	assert_failure;
+	refute_output --partial asdf;
+}
 
 @test "can run an empty script" {
 	run rrssh run ---;
@@ -156,7 +247,6 @@ SCRIPT
 	assert_success;
 	refute_output --partial asdf;
 }
-
 
 
 

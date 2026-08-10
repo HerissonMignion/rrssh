@@ -150,10 +150,10 @@ EXECUTION
 
 COMMANDS
 
-	host <destination> [ <commands>... ]
-	host <destination> : <commands>...
-	sudo-host <destination> [ <commands>... ]
-	sudo-host <destination> : <commands>...
+	host <destination> [-o <option=value>]... [ <commands>... ]
+	host <destination> [-o <option=value>]... : <commands>...
+	sudo-host <destination> [-o <option=value>]... [ <commands>... ]
+	sudo-host <destination> [-o <option=value>]... : <commands>...
 
 		These commands are the main purpose of using rrssh.
 		Duplicates the rrssh kernel through a single ssh connection
@@ -162,6 +162,8 @@ COMMANDS
 		in a network.  The [ ] variants are scoped.  The : variants
 		take all the commands until the end of the current scope.  The
 		sudo variants will run the actual ssh command through sudo.
+
+		Ex: host appserver1 -o Port=10022 [ --- ls --- ]
 
 	su <user> [ <commands>... ]
 	su <user> : <commands>...
@@ -1573,12 +1575,27 @@ command_fork() {
 
 	local arg_destination; # host commands
 	local arg_username; # su commands
+	local ssh_o_options=();
 	local scope_opening_token="";
 	local scope_closing_token="";
 	if ! ((is_scope_command)); then
 		arg_destination=$(peek_toplevel_args);
 		arg_username=$(peek_toplevel_args);
 		shift_toplevel_args;
+
+		case "$command_name" in
+			(host|sudo-host)
+				while [ "$(peek_toplevel_args)" == -o ]; do
+					shift_toplevel_args;
+					any_toplevel_args_remaining || {
+						panic "The -o option needs one argument.";
+					};
+					sso_o_options+=(-o "$(peek_toplevel_args)");
+					shift_toplevel_args;
+				done;
+				;;
+		esac;
+
 		scope_opening_token=$(peek_toplevel_args);
 		case "$scope_opening_token" in
 			("[")
@@ -1811,9 +1828,7 @@ LANDING_SCRIPT
 		fi;
 		if ((is_host_command)); then
 			# cmd+=(ssh -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -- "$arg_destination");
-			# TODO: check ssh options and compare across version and
-			# systems what is available.
-			cmd+=(ssh -o ConnectTimeout=10 -- "$arg_destination");
+			cmd+=(ssh "${sso_o_options[@]}" -- "$arg_destination");
 		elif ((is_su_command)); then
 			if ! ((opt_fake_su)); then
 				cmd+=(su --login -- "$arg_username" -c);
