@@ -120,6 +120,16 @@ OPTIONS
 		Provide a file of commands to execute instead of reading from
 		the arguments.  If file is "-", then read from stdin.
 
+		When writing a script file, type words and tokens like you
+		would in a shell script.  rrssh parses the file line by line
+		with eval so that bash handles all forms of expansions like
+		brace expansion, tilde expansion, and command substitution,
+		for example.  This way, rrssh can read ANSI-C single quoted
+		sequences. If you include a rrssh script in an unquoted here
+		document in a standard shell script, use printf %q to properly
+		escape all variables inside the here document.  See the
+		examples below.
+
 	-p
 
 		Make any command chain that does not exit with 0 trigger a
@@ -164,6 +174,10 @@ COMMANDS
 		take all the commands until the end of the current scope.  The
 		sudo variants will run the actual ssh command through sudo.
 
+	    Options provided using -o will be forwarded to the ssh
+	    command.  The following options will always be provided to
+	    ssh: ConnectTimeout=10 ServerAliveInterval=15.
+
 		Ex: host appserver1 -o Port=10022 [ --- ls --- ]
 
 	su <user> [ <commands>... ]
@@ -183,7 +197,8 @@ COMMANDS
 	command [ <argv>... ]
 	--- <argv>... ---
 
-		Call an external command.
+		Call an external command.  Stdout and stderr are currently
+		mixed together into rrssh's stdout.
 
 	true
 	false
@@ -196,7 +211,7 @@ COMMANDS
 
 	panic <text>
 
-		Triggers rrssh's panic mecanism with the given message.  This
+		Trigger rrssh's panic mechanism with the given message.  This
 		command makes the execution stop.
 
 	cd <path>
