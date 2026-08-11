@@ -12,7 +12,6 @@ teardown() {
 	rm -f "$temp_file1";
 }
 
-
 @test "-o option works on host commands" {
 	run rrssh run --- host;
 	assert_failure;
@@ -216,6 +215,24 @@ SCRIPT
 	refute_output --partial asdf;
 	refute_output --partial qwer;
 	assert_output --partial ffgf;
+}
+
+@test "spaces are preserved in commands" {
+	run rrssh run --- --- echo asdf qwer ---;
+	assert_success;
+	assert_output "asdf qwer";
+
+	run rrssh run --- --- echo "asdf     qwer" ---;
+	assert_success;
+	assert_output "asdf     qwer";
+
+	run rrssh run --- host localhost : --- echo "asdf     qwer" ---;
+	assert_success;
+	assert_output "asdf     qwer";
+
+	run rrssh run --- --- echo -n "asdf     qwer" --- --- echo "ffgf    rrtr" ---;
+	assert_success;
+	assert_output "asdf     qwerffgf    rrtr";
 }
 
 @test "no obligatory linefeeds appended after commands" {

@@ -43,7 +43,7 @@ teardown() {
 	assert_failure;
 
 	# we try to run a command called "]", which doesn't exist
-	# current commented because bats warns that 127 is for commands not found...
+	# currently commented because bats warns that 127 is for commands not found...
 	# run -127 rrssh run --- command "]";
 	# assert_failure;
 

@@ -24,6 +24,26 @@ compare_md5() {
 	[ "$file1md5" == "$file2md5" ];
 }
 
+@test "relative dropdirs are stored as absolute path" {
+	cp /bin/grep "$temp_dir1/.";
+	run rrssh run -f - <<SCRIPT;
+--- mkdir -p $(printf %q "$temp_dir2/dir/dir") ---
+host localhost [
+	cd $(printf %q "$temp_dir2")
+	drop-dir drop2 ./dir
+	cd dir
+	take-file $(printf %q "$temp_dir1/grep") "" drop2
+]
+SCRIPT
+	assert_success;
+
+	run [ -f "$temp_dir2/dir/grep" ];
+	assert_success;
+
+	run [ -f "$temp_dir2/dir/dir/grep" ];
+	assert_failure;
+}
+
 @test "the test suite's compare_md5 function works" {
 	run compare_md5 /bin/bash /bin/bash;
 	assert_success;

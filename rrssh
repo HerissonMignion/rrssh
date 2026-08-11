@@ -28,12 +28,12 @@ SYNOPSIS
 
 DESCRIPTION
 
-	An Ansible-like automation tool that uses SSH to jump through any
-	number of hosts to run commands and transfer files and directories
-	along the way.  Its commands are a basic shell-like scripting
-	language provided via arguments or a file.  The panic mechanism
-	will stop its execution on any unhandled failure in the script, or
-	an internal rrssh failure.
+	An automation tool that uses SSH to jump through any number of
+	hosts to run commands and transfer files and directories along the
+	way.  Its commands are a basic shell-like scripting language
+	provided via arguments or a file.  The panic mechanism will stop
+	its execution on any unhandled failure in the script, or an
+	internal rrssh failure.
 
 	The only requirements for the target hosts are an old bash version
 	and basic utilities.
@@ -74,7 +74,8 @@ SAFETY CONSIDERATIONS
 	detection capability to verify that there is a least one test for
 	all important error paths.
 
-	No AI is used in the development of rrssh to ensure quality.
+	To ensure quality, no AI is used to develop rrssh.  It may be used
+	only to scan for bugs.
 
 MAIN COMMANDS
 
@@ -248,7 +249,7 @@ prefix operators
 	try
 
 		Ignore the exit code of the following command chain.  Default
-		behavior is to panic when a command chain exists non-0.
+		behavior is when a command chain exits non-0.
 
 OPTIONS USED BY RRSSH'S TEST SUITE
 
@@ -808,6 +809,8 @@ consume_toplevel_scope_closing_token=0;
 
 toplevel_args=();
 total_toplevel_args_shift_count=0;
+
+
 
 make_command_fail_ids=();
 
@@ -1519,21 +1522,16 @@ command_command() {
 		((end_token_reached)) || {
 			panic "The command 'command' must end with the corresponding ending token: '$end_token'.";
 		};
+
+		string_command="$(printf "%q " "${argv[@]}")";
+		# debug "$string_command";
 	fi;
 
 	current_command_must_run_p || return 0;
 
 	local rc=0;
-	if ((is_string)); then
-		bash -c "$string_command" 0< /dev/null 3>&- |& send_to_stdout;
-		rc=${PIPESTATUS[0]};
-	else
-		(
-			"${argv[@]}";
-			exit "$?";
-		) 0< /dev/null 3>&- |& send_to_stdout;
-		rc=${PIPESTATUS[0]};
-	fi;
+	bash -c "$string_command" 0< /dev/null 3>&- 5>&- 6>&- 7>&- 2>&1 | send_to_stdout;
+	rc=${PIPESTATUS[0]};
 	wait;
 
 	return "$rc";
@@ -1590,7 +1588,7 @@ command_fork() {
 					any_toplevel_args_remaining || {
 						panic "The -o option needs one argument.";
 					};
-					sso_o_options+=(-o "$(peek_toplevel_args)");
+					ssh_o_options+=(-o "$(peek_toplevel_args)");
 					shift_toplevel_args;
 				done;
 				;;
@@ -1828,10 +1826,10 @@ LANDING_SCRIPT
 		fi;
 		if ((is_host_command)); then
 			# cmd+=(ssh -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -- "$arg_destination");
-			cmd+=(ssh "${sso_o_options[@]}" -- "$arg_destination");
+			cmd+=(ssh -o ConnectTimeout=10 -o ServerAliveInterval=15 "${ssh_o_options[@]}" -- "$arg_destination");
 		elif ((is_su_command)); then
 			if ! ((opt_fake_su)); then
-				cmd+=(su --login -- "$arg_username" -c);
+				cmd+=(su - -- "$arg_username" -c);
 			else
 				cmd+=(bash -c);
 			fi;
@@ -2276,7 +2274,7 @@ command_drop_dir() {
 	};
 
 	localhost_dropdirs_names+=("$dropdir_name");
-	localhost_dropdirs_paths+=("$dropdir_path");
+	localhost_dropdirs_paths+=("$absolute_path");
 
 
 	local line;
