@@ -759,6 +759,18 @@ is_root_kernel=0;
 # if we have stdin, then we have 2 way communication.
 opt_stdin=0;
 
+
+# the rrssh kernel supports being recycled.  this allows for a much
+# faster scan mode.  if we are a recycled kernel, we must ignore some
+# @ messages given that parent, and we receive these equivalent
+# through arguments.
+
+opt_recycled=0;
+extra_messages=();
+recycling_base_toplevel_skip=0;
+
+
+
 kernel_inner_function_args=();
 
 
@@ -779,6 +791,17 @@ while (($#)); do
 			;;
 		(--stdin)
 			opt_stdin=1;
+			;;
+		(--recycled)
+			opt_recycled=1;
+			;;
+		(-x|--extra-message)
+			extra_messages+=("$1");
+			shift;
+			;;
+		(--recycling_base_toplevel_skip)
+			recycling_base_toplevel_skip=$1;
+			shift;
 			;;
 	esac;
 done;
@@ -869,6 +892,30 @@ skip_to_heavy_objects() {
 		esac;
 	done;
 }
+load_extra_messages() {
+	set -- "${extra_messages[@]}";
+	local arg;
+	while (($#)); do
+		arg=$1;
+		shift;
+		case "$arg" in 
+			(@@toplevel_scope_closing_token)
+				toplevel_scope_closing_token=$1;
+				shift;
+				;;
+			(@consume_toplevel_scope_closing_token)
+				consume_toplevel_scope_closing_token=1;
+				;;
+			(@@rrssh_host_depth)
+				rrssh_host_depth=$1;
+				shift;
+				;;
+			(*)
+				panic "Unknown message '$arg' in extra_messages.";
+				;;
+		esac;
+	done;
+}
 load_eof_values() {
 	local object_type;
 	local eof_encountered=0;
@@ -915,7 +962,9 @@ load_eof_values() {
 					opt_fake_su=1;
 					;;
 				(@consume_toplevel_scope_closing_token)
-					consume_toplevel_scope_closing_token=1;
+					if ! ((opt_recycled)); then
+						consume_toplevel_scope_closing_token=1;
+					fi;
 					;;
 				(@@make_command_fail_id)
 					make_command_fail_ids+=("$(read_bin)");
@@ -948,6 +997,12 @@ load_eof_values() {
 					;;
 			esac;
 		done;
+		load_extra_messages;
+		# if we are a recycled kernel, then the rest was already validated
+		if ((opt_recycled)); then
+			eof_encountered=1;
+			return 0;
+		fi;
 		while IFS="" read -r object_type || [ -n "$object_type" ]; do
 			case "$object_type" in
 				(@panic)
@@ -1638,32 +1693,53 @@ command_fork() {
 	local sub_analyser_bliss=0;
 
 
-	local sub_analyser_kernel_path;
-	sub_analyser_kernel_path=$(mktemp) || {
-		panic "mktemp failed";
-	};
+	# local sub_analyser_kernel_path;
+	# sub_analyser_kernel_path=$(mktemp) || {
+	# 	panic "mktemp failed";
+	# };
 	local analysis_output;
 	analysis_output=$(mktemp) || {
-		rm -f -- "$sub_analyser_kernel_path";
+		# rm -f -- "$sub_analyser_kernel_path";
 		panic "mktemp failed";
 	};
-	(
-		begin_basic_fork;
+	# (
+	# 	begin_basic_fork;
 
-		echo @@toplevel_scope_closing_token;
-		dump_bin <<<"$scope_closing_token";
-		if ! [ "$scope_opening_token" == ":" ]; then
-			echo @consume_toplevel_scope_closing_token;
-		fi;
+	# 	echo @@toplevel_scope_closing_token;
+	# 	dump_bin <<<"$scope_closing_token";
+	# 	if ! [ "$scope_opening_token" == ":" ]; then
+	# 		echo @consume_toplevel_scope_closing_token;
+	# 	fi;
 
-		echo @@rrssh_host_depth;
-		dump_bin <<<$((rrssh_host_depth + 1));
+	# 	echo @@rrssh_host_depth;
+	# 	dump_bin <<<$((rrssh_host_depth + 1));
 
-		echo @end_of_header;
-		echo @eof;
-	) > "$sub_analyser_kernel_path";
-	bash "$sub_analyser_kernel_path" -- --mode scan | generic_message_handler > "$analysis_output";
-	rm -f "$sub_analyser_kernel_path";
+	# 	echo @end_of_header;
+	# 	echo @eof;
+	# ) > "$sub_analyser_kernel_path";
+
+	local sub_extra_options=(
+		-x @@toplevel_scope_closing_token -x "$scope_closing_token"
+
+		--recycling_base_toplevel_skip
+		"$((recycling_base_toplevel_skip + total_toplevel_args_shift_count))"
+	);
+
+	if ! [ "$scope_opening_token" == ":" ]; then
+		sub_extra_options+=(
+			-x @consume_toplevel_scope_closing_token
+		);
+	fi;
+
+	# TODO: fix this
+	sub_extra_options+=(
+		-x @@rrssh_host_depth
+		-x "$((rrssh_host_depth + 1))"
+	);
+
+
+	bash "$KERNEL_PATH" -- --mode scan --recycled "${sub_extra_options[@]}" | generic_message_handler > "$analysis_output";
+	# rm -f "$sub_analyser_kernel_path";
 	local line;
 	local child_dropdir;
 	local subkernel_child_dropdirs=();
@@ -2765,6 +2841,11 @@ main_kernel_inner_function() {
 
 main() {
 	load_eof_values;
+
+	if ((opt_recycled)); then
+		shift_toplevel_args "$recycling_base_toplevel_skip";
+		total_toplevel_args_shift_count=0;
+	fi;
 
 	case "$op_mode" in
 		(kernel-inner-function)
