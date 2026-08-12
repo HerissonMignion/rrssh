@@ -840,6 +840,8 @@ epoll_panic && {
 };
 
 
+# hoenn
+
 # if we are not the root kernel, then this is the token that's gonna
 # close our scope.  if empty, then we dont have a closing token.
 toplevel_scope_closing_token="";
