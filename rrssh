@@ -56,7 +56,7 @@ SAFETY CONSIDERATIONS
 	sent).  This mecanism also forces rrssh to crash if any host in
 	the "chain" becomes unreachable for any reason.  Worst case
 	scenario would be that rrssh will hang idle infinitely instead of
-	dying.  An additionnal crashing mechanism is that stderr is keept
+	dying.  An additionnal crashing mechanism is that stderr is kept
 	connected at all times up to the "root" command, and rrssh will
 	attempt to write trash data during long operations in case a
 	network failure with a parent host eventually leads to receiving a
@@ -1723,6 +1723,11 @@ command_fork() {
 	# next toplevel arg is the first token inside the scope.  the
 	# closing square bracket will come later and may be consumed by
 	# the sub kernel.
+
+	# we could tell subkernels to skip preexecution analysis if the
+	# scan phase returns no dropdirs, and thus speeding up many cases,
+	# but we would have to let go of protections like comparing the
+	# amount of token consumed during scanning and running.
 
 	# pre-execution analysis
 	local total_scope_args_shift=0;
