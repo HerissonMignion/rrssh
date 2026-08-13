@@ -201,6 +201,19 @@ COMMANDS
 		mixed together into rrssh's stdout.  /dev/null will be the
 		command's stdin.
 
+	set-env <var>=<value>
+	global-set-env <var>=<value>
+	unset-env <var>
+	global-unset-env <var>
+
+		Exports or unsets environment variables.  It will only be
+		applied on external commands ran through rrssh.  The "global"
+		variants will affect the current host and all deeper hosts.
+
+		Ex:
+			global-set-env HTTPS_PROXY=192.168.0.103
+			unset-env HTTPS_PROXY
+
 	true
 	false
 
@@ -853,6 +866,8 @@ toplevel_args=();
 total_toplevel_args_shift_count=0;
 
 
+local_env_cmds="";
+global_env_cmds="";
 
 make_command_fail_ids=();
 
@@ -1007,6 +1022,12 @@ load_eof_values() {
 					;;
 				(@@kernel_inner_function_arg)
 					kernel_inner_function_args+=("$(read_bin)");
+					;;
+				(@@global_env_cmds)
+					global_env_cmds=$(read_bin);
+					;;
+				(@@local_env_cmds)
+					local_env_cmds=$(read_bin);
 					;;
 				(*)
 					panic "Unknown object in kernel dump: '$object_type'.";
@@ -1616,7 +1637,7 @@ command_command() {
 	current_command_must_run_p || return 0;
 
 	local rc=0;
-	bash -c "$string_command" 0< /dev/null 3>&- 5>&- 6>&- 7>&- 2>&1 | send_to_stdout;
+	bash -c "${local_env_cmds}${string_command}" 0< /dev/null 3>&- 5>&- 6>&- 7>&- 2>&1 | send_to_stdout;
 	rc=${PIPESTATUS[0]};
 	wait;
 
@@ -1957,6 +1978,15 @@ LANDING_SCRIPT
 
 
 			pipeline_coverage id_g39rgr9ghf39h38;
+
+			echo @@global_env_cmds;
+			dump_bin <<<"$global_env_cmds";
+			echo @@local_env_cmds;
+			if ((is_scope_command)); then
+				dump_bin <<<"$local_env_cmds";
+			else
+				dump_bin <<<"$global_env_cmds";
+			fi;
 
 
 			# for optimization of transfers over the network, we send all
@@ -2627,6 +2657,49 @@ command_panic() {
 	panic "User triggered panic:" "$message";
 }
 
+command_env() {
+	local arg0;
+	arg0=$(peek_toplevel_args);
+	shift_toplevel_args;
+
+	any_toplevel_args_remaining || {
+		panic "The command $arg0 must be provided an argument.";
+	};
+	local param;
+	param=$(peek_toplevel_args);
+	shift_toplevel_args;
+
+	current_command_must_run_p || return 0;
+
+
+	local is_global=0;
+	local text="";
+	case "$arg0" in
+		(set-env)
+			text="export $(printf %q "$param")";
+			;;
+		(global-set-env)
+			text="export $(printf %q "$param")";
+			is_global=1;
+			;;
+		(unset-env)
+			text="unset $(printf %q "$param")";
+			;;
+		(global-unset-env)
+			text="unset $(printf %q "$param")";
+			is_global=1;
+			;;
+	esac;
+
+    local_env_cmds+="${text}; ";
+	if ((is_global)); then
+		global_env_cmds+="${text}; ";
+	fi;
+}
+
+
+
+
 
 if false; then
 	coverage id__if_this_one_shows_up__then_coverage_detection_works;
@@ -2745,6 +2818,10 @@ main_execution_loop() {
 				if current_command_must_run_p; then
 					pwd | send_to_stdout;
 				fi;
+				;;
+			(set-env|global-set-env|unset-env|global-unset-env)
+				command_env;
+				current_command_rc=$?;
 				;;
 			(*)
 				echocom @@exitcode;
