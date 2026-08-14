@@ -1,9 +1,9 @@
 
 
 I run all these tests by cd-ing in this directory and running:
-../with-path.sh bats *.bats
+../with-test-path.sh bats *.bats
 or
-../with-path.sh bats *.fast.bats
+../with-test-path.sh bats *.fast.bats
 
 
 On my distro (ubuntu), i need the packages "bats" and "bats-assert". i

@@ -9,7 +9,7 @@ main() {
 	local coverage_file=$(mktemp);
 	export RRSSH_COVERAGE_FILE="$coverage_file";
 
-	../with-path.sh bats *.fast.bats;
+	../with-test-path.sh bats *.fast.bats;
 
 	grep -Po '\b(pipeline_)?coverage id_[a-zA-Z0-9_\-]+\b' ../rrssh | awk '{ print $2; }' |
 		while IFS="" read -r line || [ -n "$line" ]; do
