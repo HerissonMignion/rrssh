@@ -7,13 +7,9 @@
 # MUST: Support older bash versions.  No fancy features other than
 # basic list manipulations.
 
-# TODO: un pretty printer
-
 # TODO: améliorer l'anglais dans le message d'aide.
 
 # TODO: différentes versions de bash
-
-# TODO: set-env unset-env
 
 
 help() {
@@ -171,14 +167,14 @@ COMMANDS
 		and execute the sub commands on the remote host.  This command
 		can include itself arbitrarily many times to reach any depth
 		in a network.  The [ ] variants are scoped.  The : variants
-		take all the commands until the end of the current scope.  The
+		take all the commands until the end of the parent scope.  The
 		sudo variants will run the actual ssh command through sudo.
 
-	    Options provided using -o will be forwarded to the ssh
-	    command.  The following options will always be provided to
-	    ssh: ConnectTimeout=10 ServerAliveInterval=15.
+		Options provided using -o will be forwarded to the ssh
+		command.  The following options will always be provided to
+		ssh: ConnectTimeout=10 ServerAliveInterval=15.
 
-		Ex: host appserver1 -o Port=10022 [ --- ls --- ]
+		Ex: host charles@appserver1 -o Port=10022 [ --- ls --- ]
 
 	su <user> [ <commands>... ]
 	su <user> : <commands>...
@@ -309,11 +305,26 @@ COMMANDS USED BY RRSSH'S TEST SUITE
 		function, print its output and return its exit code.  This is
 		used for helper functions that don't have side effects.
 
-ENVIRONMENT VARIABLES USED FOR DEVELOPMENT
+ENVIRONMENT VARIABLES USED BY RRSSH'S TEST SUITE
 
 	RRSSH_COVERAGE_FILE
 
 		If defined, file path to append code coverage ids encountered.
+
+	RRSSH_IS_TESTING_ENVIRONMENT
+
+		If defined to "1", then some printing behavior is changed
+		slightly to allow for a more complete test suite.  For
+		example, an error message will no longer print the command
+		that failed so that a test can refute the output of an echo
+		command inside.
+
+	RRSSH_BASH_EXE
+
+		If defined, then use that bash executable across all rrssh
+		subkernels.  The test suite runs locally, so testing different
+		bash version is only a matter of using a different executable
+		on the system.  The path must be absolute.
 
 EXAMPLES
 
@@ -875,6 +886,9 @@ opt_p=0;
 opt_i=0;
 opt_fake_su=0;
 
+rrssh_is_testing_environment=0;
+rrssh_bash_exe="bash";
+
 shift_toplevel_args() {
 	local shift_count=${1:-1};
 	set -- "${toplevel_args[@]}";
@@ -991,6 +1005,12 @@ load_eof_values() {
 					;;
 				(@fake_su)
 					opt_fake_su=1;
+					;;
+				(@rrssh_is_testing_environment)
+					rrssh_is_testing_environment=1;
+					;;
+				(@@rrssh_bash_exe)
+					rrssh_bash_exe=$(read_bin);
 					;;
 				(@consume_toplevel_scope_closing_token)
 					if ! ((opt_recycled)); then
@@ -1144,6 +1164,10 @@ begin_basic_fork() {
 	((opt_p)) && echo @opt_p;
 	((opt_i)) && echo @opt_i;
 	((opt_fake_su)) && echo @fake_su;
+	((rrssh_is_testing_environment)) && echo @rrssh_is_testing_environment;
+
+	echo @@rrssh_bash_exe;
+	dump_bin <<<"$rrssh_bash_exe";
 
 	echo @@rrssh_id;
 	dump_bin <<<"$rrssh_id";
@@ -2810,6 +2834,9 @@ main_execution_loop() {
 				shift_toplevel_args;
 				if current_command_must_run_p; then
 					echoout "ASDF";
+					debug "$rrssh_bash_exe";
+					debug "$rrssh_is_testing_environment";
+					"$rrssh_bash_exe" --version | send_to_stdout;
 				fi;
 				;;
 			(delim)
@@ -2876,7 +2903,11 @@ main_execution_loop() {
 				echocom @@exitcode;
 				dump_bin <<<"$current_chain_rc" 1>&3;
 				# TODO: add command chain and line number to error message
-				panic "The command chain exited non-0.";
+				if ! ((rrssh_is_testing_environment)); then
+					panic "The command chain exited non-0.";
+				else
+					panic "The command chain exited non-0.";
+				fi;
 			else
 				echocom @@scope_exitcode;
 				dump_bin <<<"$current_chain_rc" 1>&3;
@@ -2955,6 +2986,14 @@ exit "$?";
 KERNEL
 	
 }
+
+
+
+rrssh_is_testing_environment=0;
+[ "$RRSSH_IS_TESTING_ENVIRONMENT" == "1" ] && rrssh_is_testing_environment=1;
+
+rrssh_bash_exe="bash";
+[ -n "$RRSSH_BASH_EXE" ] && rrssh_bash_exe=$RRSSH_BASH_EXE;
 
 
 
@@ -3038,6 +3077,10 @@ begin_root_kernel() {
 	((opt_p)) && echo @opt_p;
 	((opt_i)) && echo @opt_i;
 	((opt_fake_su)) && echo @fake_su;
+	((rrssh_is_testing_environment)) && echo @rrssh_is_testing_environment;
+
+	echo @@rrssh_bash_exe;
+	dump_bin <<<"$rrssh_bash_exe";
 
 	echo @@rrssh_id;
 	tr -dc 0123456789abcdefghijklmnopqrstuvwxyz < /dev/urandom | head -c 10 | dump_bin;

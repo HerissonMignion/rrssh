@@ -2,5 +2,6 @@
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd);
 export PATH="$SCRIPT_DIR:$PATH";
+export RRSSH_IS_TESTING_ENVIRONMENT=1;
 
 "$@";
