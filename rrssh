@@ -425,9 +425,7 @@ while (($#)); do
 			exit 0;
 			;;
 		(---)
-			opt_script_provided=1;
-			arg_script=("$@");
-			set --;
+			trailing_args+=(---);
 			break;
 			;;
 		(--)
@@ -466,10 +464,31 @@ while (($#)); do
 			make_command_fail_ids+=("$1");
 			shift;
 			;;
+		(-?*)
+			1>&2 echo "Unknown option '$arg'.";
+			exit 1;
+			;;
 		(*)
 			trailing_args+=("$arg");
 			;;
 	esac
+done;
+set -- "${trailing_args[@]}" "$@";
+trailing_args=();
+while (($#)); do
+	arg=$1;
+	shift;
+	case "$arg" in
+		(---)
+			opt_script_provided=1;
+			arg_script=("$@");
+			set --;
+			break;
+			;;
+		(*)
+			trailing_args+=("$arg");
+			;;
+	esac;
 done;
 set -- "${trailing_args[@]}" "$@";
 unset trailing_args;
