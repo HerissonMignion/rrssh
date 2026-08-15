@@ -1254,13 +1254,6 @@ begin_basic_fork() {
 
 
 
-identity_function() {
-	local ret=$1;
-	shift;
-	printfout '%s\n' "$@";
-	return "$ret";
-}
-
 sanitize_path() {
 	local ret=$1;
 	[ -z "$ret" ] && return 1;
@@ -3147,6 +3140,7 @@ KERNEL
 
 
 rrssh_is_testing_environment=0;
+# shellcheck disable=SC2153
 [ "$RRSSH_IS_TESTING_ENVIRONMENT" == "1" ] && rrssh_is_testing_environment=1;
 
 rrssh_bash_exe="bash";
