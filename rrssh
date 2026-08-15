@@ -58,8 +58,6 @@ SAFETY CONSIDERATIONS
 	network failure with a parent host eventually leads to receiving a
 	SIGPIPE, thus crashing faster.
 
-	TODO: make sure que j'ai bien implémenté les écritures dans fd 2.
-
 	From the beginning, rrssh has a first-class panic system that
 	immediately stops its execution when triggered.  The panic system
 	was not an afterthought.  rrssh is also built to be highly
@@ -99,6 +97,13 @@ MAIN COMMANDS
 		Duplicates the kernel to stdout.  Send it to shellcheck for
 		analysis.
 
+	kernel-inner-function [--] [<arguments>]...
+
+		Do not use this.  This is intended for the test suite.
+		Instead of running the main loop, call an internal kernel
+		function, print its output and return its exit code.  This is
+		used to test helper functions that don't have side effects.
+
 OPTIONS
 
 	-h, --help
@@ -118,19 +123,22 @@ OPTIONS
 
 		When writing a script file, type words and tokens like you
 		would in a shell script.  rrssh parses the file line by line
-		with eval so that bash handles all forms of expansions like
-		brace expansion, tilde expansion, and command substitution,
-		for example.  This way, rrssh can read ANSI-C single quoted
-		sequences.  If you include a rrssh script in an unquoted here
-		document in a standard shell script, use printf %q to properly
-		escape all variables inside the here document.  See the
-		examples below.
+		with eval so that bash handles all forms of quotes.  This way,
+		rrssh can read ANSI-C single quoted sequences in a script.  If
+		you include a rrssh script in an unquoted here document in a
+		standard shell script, use printf %q to properly escape all
+		variables inside the here document.  See the examples below.
+		Note that because of this, expansions like brace expansion,
+		tilde expansion, and command substitution, for example, are
+		performed on the original host.  It should never be a problem
+		if you learn to properly escape sequences using printf %q.
 
 	-p
 
 		Make any command chain that does not exit with 0 trigger a
 		rrssh panic.  Default behavior is to only make the parent
-		scope exit non-0.
+		scope exit non-0, which eventually leads to a rrssh panic if
+		not catched with a 'try' or 'or' operator.
 
 	-i
 
@@ -148,13 +156,14 @@ OPTIONS
 
 EXECUTION
 
-	A rrssh script is usually made of scopes [ ].  Unlike normal
-	shells, by default, any command "chain" that exits non-0 will stop
-	further execution of the scope and the scope will exit with non-0.
-	The -p option will make rrssh panic instead.  By default, any host
-	or su command that fails will trigger a panic unless the option -i
-	is used.  With -i, a failing host or su command will behave as if
-	its inner scope exited non-0.
+	A rrssh script's execution is very similar to a shell script,
+	excepted that by default, any command "chain" that exits non-0
+	will stop further execution of the scope and the scope will exit
+	with that code.  The -p option will make rrssh panic instead.  By
+	default, any host or su command that fails will trigger a panic,
+	regardless of the operators ('try', 'not') used in the script,
+	unless the option -i is used.  With -i, a failing host or su
+	command will behave as if its inner scope exited non-0.
 
 COMMANDS
 
@@ -196,7 +205,8 @@ COMMANDS
 
 		Call an external command.  Stdout and stderr are currently
 		mixed together into rrssh's stdout.  /dev/null will be the
-		command's stdin.
+		command's stdin.  The command will be properly escaped and
+		given to bash -c.
 
 	set-env <var>=<value>
 	global-set-env <var>=<value>
@@ -204,8 +214,8 @@ COMMANDS
 	global-unset-env <var>
 
 		Exports or unsets environment variables.  It will only be
-		applied on external commands ran through rrssh.  The "global"
-		variants will affect the current host and all deeper hosts.
+		applied on external commands ran by the script.  The "global"
+		variants will affect the current scope and all deeper scopes.
 
 		Ex:
 			global-set-env HTTPS_PROXY=192.168.0.103
@@ -223,7 +233,7 @@ COMMANDS
 	panic <text>
 
 		Trigger rrssh's panic mechanism with the given message.  This
-		command makes the execution stop.
+		command garentees that the execution stops immediatly.
 
 	cd <path>
 	home
@@ -250,6 +260,15 @@ COMMANDS
 		directories taken with take-file or take-dir.  The parent
 		directory must already exist.
 
+	delim
+
+		Print a small separator line of text representing the current
+		host or user.
+
+	debug
+
+		Print debugging information.
+
 OPERATORS
 
 	The general syntax of a "command chain" is as follows:
@@ -274,8 +293,9 @@ prefix operators
 
 	try
 
-		Ignore the exit code of the following command chain.  Default
-		behavior is when a command chain exits non-0.
+		Ignore the exit code of the following command chain.  Will
+		prevent panicking or exiting the current scope with an error
+		if the command chain exits non-0.
 
 OPTIONS USED BY RRSSH'S TEST SUITE
 
@@ -288,7 +308,7 @@ OPTIONS USED BY RRSSH'S TEST SUITE
 
 		Do not use this.  This is intended for the test suite.  Make
 		the su commands not really attempt to switch user to prevent
-		passwords from breaking the test suite.
+		passwords and prompts from breaking the test suite.
 
 COMMANDS USED BY RRSSH'S TEST SUITE
 
@@ -298,13 +318,6 @@ COMMANDS USED BY RRSSH'S TEST SUITE
 		a command fail to validate the behavior of the error paths.
 		This will be in effect only for the current scope and all
 		child scopes.
-
-	kernel-inner-function [--] [<arguments>]...
-
-		Do not use this.  This is intended for the test suite.
-		Instead of running the main loop, call an internal kernel
-		function, print its output and return its exit code.  This is
-		used for helper functions that don't have side effects.
 
 ENVIRONMENT VARIABLES USED BY RRSSH'S TEST SUITE
 
@@ -2918,12 +2931,14 @@ main_execution_loop() {
 					debug "$rrssh_bash_exe";
 					debug "$rrssh_is_testing_environment";
 					"$rrssh_bash_exe" --version | send_to_stdout;
+					echoout;
+					debug "localhost_dropdirs_paths:" "${localhost_dropdirs_paths[@]}";
 				fi;
 				;;
 			(delim)
 				shift_toplevel_args;
 				if current_command_must_run_p; then
-					echoout "==== ($rrssh_fork_depth $(hostname))";
+					echoout "==== $rrssh_fork_depth ($kernel_designation) $(hostname)";
 				fi;
 				;;
 			(pwd)
@@ -2999,7 +3014,7 @@ main_execution_loop() {
 				if ! ((rrssh_is_testing_environment)); then
 					panic "The command chain exited non-0." "Command chain: ( $(printf "%q " "${faulty_tokens[@]}"))" "${faulty_traces[@]}";
 				else
-					panic "The command chain exited non-0.";
+					panic "The command chain exited non-0." "${faulty_traces[@]}";
 				fi;
 			else
 				echocom @@scope_exitcode;
