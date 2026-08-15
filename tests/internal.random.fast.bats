@@ -43,11 +43,58 @@ teardown() {
 	run rrssh kernel-inner-function -- sanitize_path asdf;
 	assert_success;
 	assert_output asdf;
-	
-	
-	
+    
 }
 
+@test "bash_realpath works" {
+	run rrssh kernel-inner-function -- bash_realpath /usr/share/man;
+	assert_success;
+	assert_output /usr/share/man;
+
+	run rrssh kernel-inner-function -- bash_realpath /usr/share/man/..;
+	assert_success;
+	assert_output /usr/share;
+
+	run rrssh kernel-inner-function -- bash_realpath /usr/share/man/..///;
+	assert_success;
+	assert_output /usr/share;
+
+	run rrssh kernel-inner-function -- bash_realpath /usr////share/man/..///;
+	assert_success;
+	assert_output /usr/share;
+
+	run bash -c "cd /usr/share; rrssh kernel-inner-function -- bash_realpath .";
+	assert_success;
+	assert_output /usr/share;
+
+	run bash -c "cd /usr/share; rrssh kernel-inner-function -- bash_realpath ../././.";
+	assert_success;
+	assert_output /usr;
+
+	run bash -c "cd /usr/share; rrssh kernel-inner-function -- bash_realpath /man";
+	assert_success;
+	assert_output /man;
+
+	run bash -c "cd /usr/share; rrssh kernel-inner-function -- bash_realpath man";
+	assert_success;
+	assert_output /usr/share/man;
+
+	run bash -c "cd /usr/share; rrssh kernel-inner-function -- bash_realpath ./man";
+	assert_success;
+	assert_output /usr/share/man;
+
+	run bash -c "cd /usr/share; rrssh kernel-inner-function -- bash_realpath ./man/.";
+	assert_success;
+	assert_output /usr/share/man;
+
+	run bash -c "cd /usr/share; rrssh kernel-inner-function -- bash_realpath ./man/..";
+	assert_success;
+	assert_output /usr/share;
+
+	run bash -c "cd /usr/share; rrssh kernel-inner-function -- bash_realpath ../man";
+	assert_success;
+	assert_output /usr/man;
+}
 
 
 

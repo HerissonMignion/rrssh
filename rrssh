@@ -1265,7 +1265,7 @@ sanitize_path() {
 
 # the parent directory must exist because we just use pwd to do the
 # job.  i wrote this function because i've seen systems that dont have
-# this command.	
+# this command.  may be used both for files and directories.
 bash_realpath() {
 	local input_path;
 	input_path=$(sanitize_path "$1");
@@ -1275,10 +1275,15 @@ bash_realpath() {
 	fi;
 	local basename="${input_path##*/}";
 	local dirname="${input_path%/*}";
+	[ -z "$dirname" ] && dirname=/;
 	[ "$dirname" == "$input_path" ] && dirname=.;
 	(
 		cd -- "$dirname" || exit 1;
-		printf %s\\n "$(pwd)/$basename";
+		if [ -d "$basename" ]; then
+			cd -- "$basename" && pwd || exit 1;
+		else
+			sanitize_path "$(pwd)/$basename";
+		fi;
 	);
 }
 
