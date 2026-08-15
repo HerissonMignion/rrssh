@@ -4,6 +4,10 @@ I run all these tests by cd-ing in this directory and running:
 ../with-test-path.sh bats *.bats
 or
 ../with-test-path.sh bats *.fast.bats
+or
+../with-test-path.sh ./with-bash custom_bash/bash-4.0/charlesbuild/bash bats *.fast.bats
+or
+../with-test-path.sh ./with-bash custom_bash/bash-4.0/charlesbuild/bash bats --verbose-run --show-output-of-passing-tests *.fast.bats
 
 
 On my distro (ubuntu), i need the packages "bats" and "bats-assert". i
@@ -14,7 +18,8 @@ To run the tests, the openssh server must be installed on the machine
 and push your ssh key to yourself on your machine with the command
 ssh-copy-id localhost.
 
-To run the tests, rrssh must be in your PATH.
+To run the tests, rrssh must be in your PATH (use with-test-path.sh
+for this).
 
 
 

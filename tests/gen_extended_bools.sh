@@ -22,6 +22,7 @@ cat3 <<"STUFF";
 setup() {
 	bats_load_library bats-support;
 	bats_load_library bats-assert;
+	. "$BATS_TEST_DIRNAME/lib_test.sh";
 }
 
 teardown() {
@@ -99,7 +100,7 @@ test_combo() {
 					rc=$?;
 					# echo $?;
 
-					echo3 $'\t'"run rrssh run --- $part1 $op1 $part2 $op2 $part3 $op3 $part4;";
+					echo3 $'\t'"run brrssh run --- $part1 $op1 $part2 $op2 $part3 $op3 $part4;";
 					if ((rc == 0)); then
 						echo3 $'\t'"assert_success;";
 					else

@@ -1727,7 +1727,7 @@ command_command() {
 	current_command_must_run_p || return 0;
 
 	local rc=0;
-	bash -c "${local_env_cmds}${string_command}" 0< /dev/null 3>&- 5>&- 6>&- 7>&- 2>&1 | send_to_stdout;
+	"$rrssh_bash_exe" -c "${local_env_cmds}${string_command}" 0< /dev/null 3>&- 5>&- 6>&- 7>&- 2>&1 | send_to_stdout;
 	rc=${PIPESTATUS[0]};
 	wait;
 
@@ -1866,7 +1866,7 @@ command_fork() {
 		);
 	fi;
 
-	bash "$KERNEL_PATH" -- --mode scan --recycled "${sub_extra_options[@]}" | generic_message_handler > "$analysis_output";
+	"$rrssh_bash_exe" "$KERNEL_PATH" -- --mode scan --recycled "${sub_extra_options[@]}" | generic_message_handler > "$analysis_output";
 
 	local line;
 	local child_dropdir;
@@ -1941,6 +1941,7 @@ echo @landing_start;
 
 call_args=($(printf "%q " "${call_args[@]}"));
 make_command_fail_ids=($(printf "%q " "${make_command_fail_ids[@]}"));
+rrssh_bash_exe=$(printf %q "$rrssh_bash_exe");
 LANDING_SCRIPT
 
 			declare -f dump_bin;
@@ -2031,7 +2032,7 @@ while IFS="" read -r line || [ -n "$line" ]; do
 done;
 
 
-testable id_asudhfisuh bash "$kernel_file_path" -- "${call_args[@]}";
+testable id_asudhfisuh "$rrssh_bash_exe" "$kernel_file_path" -- "${call_args[@]}";
 rm -f "$kernel_file_path";
 exit 0;
 
@@ -2050,13 +2051,13 @@ LANDING_SCRIPT
 			if ! ((opt_fake_su)); then
 				cmd+=(su - -- "$arg_username" -c);
 			else
-				cmd+=(bash -c);
+				cmd+=("$rrssh_bash_exe" -c);
 			fi;
 		elif ((is_scope_command)); then
-			cmd+=(bash -c);
+			cmd+=("$rrssh_bash_exe" -c);
 		fi;
 
-		"${cmd[@]}" "bash -c $(printf %q "$(print_landing_script --mode run --stdin)")";
+		"${cmd[@]}" "$(printf %q "$rrssh_bash_exe") -c $(printf %q "$(print_landing_script --mode run --stdin)")";
 		fork_command_rc=$?;
 
 		echo @@fork_command_rc;
@@ -3073,7 +3074,7 @@ main_execution_loop() {
 
 main_kernel_inner_function() {
 
-	"${kernel_inner_function_args[@]}" |& send_to_stdout;
+	"${kernel_inner_function_args[@]}" 2>&1 | send_to_stdout;
 	pipestatus_save;
 
 	echocom @@exitcode;
@@ -3153,12 +3154,12 @@ SCRIPT
 			printf %s\\n "print_args $line";
 		} > "$temp_script_path";
 
-		bash -s -n < "$temp_script_path" &> /dev/null || {
+		"$rrssh_bash_exe" -s -n < "$temp_script_path" &> /dev/null || {
 			rm -f "$temp_script_path";
 			1>&2 echo "Error in file '$filepath' on line $current_line_number.";
 			exit 1;
 		};
-		bash -s < "$temp_script_path" > "$output_file";
+		"$rrssh_bash_exe" -s < "$temp_script_path" > "$output_file";
 		rm -f "$temp_script_path";
 
 		while IFS="" read -r word || [ -n "$word" ]; do
@@ -3255,7 +3256,7 @@ run_root_kernel_mode() {
 		}
 		# trap "trap_cmd;" SIGTERM SIGKILL SIGINT SIGQUIT;
 
-		bash "$temp_kernel_path" -- --mode "$mode" --root --stdin 2> /dev/null;
+		"$rrssh_bash_exe" "$temp_kernel_path" -- --mode "$mode" --root --stdin 2> /dev/null;
 	) 0< "$rootkernel_stdin" 1> "$rootkernel_stdout" &
 	exec 6> "$rootkernel_stdin" 7< "$rootkernel_stdout";
 	

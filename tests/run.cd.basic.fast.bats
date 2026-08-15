@@ -3,6 +3,7 @@
 setup() {
 	bats_load_library bats-support;
 	bats_load_library bats-assert;
+	. "$BATS_TEST_DIRNAME/lib_test.sh";
 
 	# temp_file1=$(mktemp);
 	temp_dir=$(mktemp --directory);
@@ -18,86 +19,86 @@ teardown() {
 
 
 @test "cd home pushd popd syntax works" {
-	run rrssh run --- cd;
+	run brrssh run --- cd;
 	assert_failure;
 
-	run rrssh run --- --- echo asdf --- cd;
-	assert_failure;
-	refute_output --partial asdf;
-
-	run rrssh run --- [ --- echo asdf --- cd ];
+	run brrssh run --- --- echo asdf --- cd;
 	assert_failure;
 	refute_output --partial asdf;
 
-	run rrssh run --- --- echo asdf --- cd "$temp_dir";
+	run brrssh run --- [ --- echo asdf --- cd ];
+	assert_failure;
+	refute_output --partial asdf;
+
+	run brrssh run --- --- echo asdf --- cd "$temp_dir";
 	assert_success;
 	assert_output --partial asdf;
 
-	run rrssh run --- home;
+	run brrssh run --- home;
 	assert_success;
 
-	run rrssh run --- pushd;
+	run brrssh run --- pushd;
 	assert_failure;
 
-	run rrssh run --- --- echo asdf --- pushd;
-	assert_failure;
-	refute_output --partial asdf;
-
-	run rrssh run --- [ --- echo asdf --- pushd ];
+	run brrssh run --- --- echo asdf --- pushd;
 	assert_failure;
 	refute_output --partial asdf;
 
-	run rrssh run --- --- echo asdf --- pushd "$temp_dir";
+	run brrssh run --- [ --- echo asdf --- pushd ];
+	assert_failure;
+	refute_output --partial asdf;
+
+	run brrssh run --- --- echo asdf --- pushd "$temp_dir";
 	assert_success;
 	assert_output --partial asdf;
 	
 }
 
 @test "cd command works" {
-	run rrssh run --- cd "$temp_dir";
+	run brrssh run --- cd "$temp_dir";
 	assert_success;
 
-	run rrssh run --- cd "$temp_dir" cd asdfasdfasdf;
+	run brrssh run --- cd "$temp_dir" cd asdfasdfasdf;
 	assert_failure;
 
-	run rrssh run --- cd "$temp_dir" or cd "$temp_dir2" pwd;
+	run brrssh run --- cd "$temp_dir" or cd "$temp_dir2" pwd;
 	assert_success;
 	assert_output --partial "$temp_dir";
 	refute_output --partial "$temp_dir2";
 
-	run rrssh run --- cd "$temp_dir" or cd "$temp_dir2" [ [ pwd ] ];
+	run brrssh run --- cd "$temp_dir" or cd "$temp_dir2" [ [ pwd ] ];
 	assert_success;
 	assert_output --partial "$temp_dir";
 	refute_output --partial "$temp_dir2";
 
-	run rrssh run --- cd "$temp_dir" [ cd "$temp_dir2" ] pwd;
+	run brrssh run --- cd "$temp_dir" [ cd "$temp_dir2" ] pwd;
 	assert_success;
 	assert_output --partial "$temp_dir";
 	refute_output --partial "$temp_dir2";
 
-	run rrssh run --- [ cd "$temp_dir" ] cd "$temp_dir2" pwd;
+	run brrssh run --- [ cd "$temp_dir" ] cd "$temp_dir2" pwd;
 	assert_success;
 	refute_output --partial "$temp_dir";
 	assert_output --partial "$temp_dir2";
 }
 
 @test "pushd popd commands work" {
-	run rrssh run --- pushd "$temp_dir" pushd "$temp_dir2" pwd;
+	run brrssh run --- pushd "$temp_dir" pushd "$temp_dir2" pwd;
 	assert_success;
 	assert_output --partial "$temp_dir2";
 
-	run rrssh run --- pushd "$temp_dir" pushd "$temp_dir2" popd pwd;
+	run brrssh run --- pushd "$temp_dir" pushd "$temp_dir2" popd pwd;
 	assert_success;
 	assert_output --partial "$temp_dir";
 
-	run rrssh run --- [ [ pushd "$temp_dir" pushd "$temp_dir2" popd pwd ] ];
+	run brrssh run --- [ [ pushd "$temp_dir" pushd "$temp_dir2" popd pwd ] ];
 	assert_success;
 	assert_output --partial "$temp_dir";
 
 	# we currently dont support carrying the directory stack accros
 	# local forks, even if we says that changes wont reflect outside
 	# the inner scope. but one day we could change this, maybe.
-	run rrssh run --- pushd "$temp_dir" pushd "$temp_dir2" [ popd pwd ];
+	run brrssh run --- pushd "$temp_dir" pushd "$temp_dir2" [ popd pwd ];
 	assert_failure;
 	refute_output --partial "$temp_dir";
 	

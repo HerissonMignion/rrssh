@@ -1,0 +1,17 @@
+#!/bin/bash
+
+exe_path=$1;
+shift;
+
+[ -f "$exe_path" ] || {
+	1>&2 echo "First argument must be a bash executable.";
+	exit 1;
+}
+[ -x "$exe_path" ] || {
+	1>&2 echo "First argument must be a bash executable.";
+	exit 1;
+}
+
+export RRSSH_BASH_EXE=$(realpath "$exe_path");
+"$@";
+

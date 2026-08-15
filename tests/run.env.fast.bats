@@ -3,6 +3,7 @@
 setup() {
 	bats_load_library bats-support;
 	bats_load_library bats-assert;
+	. "$BATS_TEST_DIRNAME/lib_test.sh";
 
 	temp_file1=$(mktemp);
 }
@@ -13,45 +14,45 @@ teardown() {
 
 
 @test "set-env familly syntax is validated" {
-	run rrssh run --- print asdf set-env;
+	run brrssh run --- print asdf set-env;
 	assert_failure;
 	refute_output --partial asdf;
 
-	run rrssh run --- print asdf unset-env;
+	run brrssh run --- print asdf unset-env;
 	assert_failure;
 	refute_output --partial asdf;
 
-	run rrssh run --- print asdf global-set-env;
+	run brrssh run --- print asdf global-set-env;
 	assert_failure;
 	refute_output --partial asdf;
 
-	run rrssh run --- print asdf global-unset-env;
+	run brrssh run --- print asdf global-unset-env;
 	assert_failure;
 	refute_output --partial asdf;
 }
 
 @test "set-env unset-env works" {
-	run rrssh run --- --- bash -c 'echo "$rrssh_asdf"' ---;
+	run brrssh run --- --- bash -c 'echo "$rrssh_asdf"' ---;
 	assert_success;
 	refute_output --partial asdf;
 
-	run rrssh run --- set-env rrssh_asdf=asdf --- bash -c 'echo "$rrssh_asdf"' ---;
+	run brrssh run --- set-env rrssh_asdf=asdf --- bash -c 'echo "$rrssh_asdf"' ---;
 	assert_success;
 	assert_output --partial asdf;
 
-	run rrssh run --- set-env rrssh_asdf=asdf [ --- bash -c 'echo "$rrssh_asdf"' --- ];
+	run brrssh run --- set-env rrssh_asdf=asdf [ --- bash -c 'echo "$rrssh_asdf"' --- ];
 	assert_success;
 	assert_output --partial asdf;
 
-	run rrssh run --- set-env rrssh_asdf=asdf unset-env rrssh_asdf [ --- bash -c 'echo "$rrssh_asdf"' --- ];
+	run brrssh run --- set-env rrssh_asdf=asdf unset-env rrssh_asdf [ --- bash -c 'echo "$rrssh_asdf"' --- ];
 	assert_success;
 	refute_output --partial asdf;
 
-	run rrssh run --- set-env rrssh_asdf=asdf [ unset-env rrssh_asdf --- bash -c 'echo "$rrssh_asdf"' --- ];
+	run brrssh run --- set-env rrssh_asdf=asdf [ unset-env rrssh_asdf --- bash -c 'echo "$rrssh_asdf"' --- ];
 	assert_success;
 	refute_output --partial asdf;
 
-	run rrssh run -f - <<"SCRIPT";
+	run brrssh run -f - <<"SCRIPT";
 set-env rrssh_var1=asdf
 set-env rrssh_var2=qwer
 set-env rrssh_var3=ffgf
@@ -72,7 +73,7 @@ SCRIPT
 }
 
 @test "global-set-env global-unset-env works" {
-	run rrssh run -f - <<"SCRIPT";
+	run brrssh run -f - <<"SCRIPT";
 global-set-env rrssh_var1=asdf
 global-set-env rrssh_var2=qwer
 global-set-env rrssh_var3=ffgf

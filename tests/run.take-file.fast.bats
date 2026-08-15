@@ -4,6 +4,7 @@
 setup() {
 	bats_load_library bats-support;
 	bats_load_library bats-assert;
+	. "$BATS_TEST_DIRNAME/lib_test.sh";
 
 	temp_dir1=$(mktemp --directory);
 	temp_dir2=$(mktemp --directory);
@@ -26,7 +27,7 @@ compare_md5() {
 
 @test "relative dropdirs are stored as absolute path" {
 	cp /bin/grep "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 --- mkdir -p $(printf %q "$temp_dir2/dir/dir") ---
 host localhost [
 	cd $(printf %q "$temp_dir2")
@@ -53,34 +54,34 @@ SCRIPT
 }
 
 @test "new file names are validated before execution starts" {
-	run rrssh run --- --- echo asdf --- take-file /bin/bash . dropdir;
+	run brrssh run --- --- echo asdf --- take-file /bin/bash . dropdir;
 	assert_failure;
 	refute_output --partial asdf;
 
-	run rrssh run --- --- echo asdf --- take-file /bin/bash .. dropdir;
+	run brrssh run --- --- echo asdf --- take-file /bin/bash .. dropdir;
 	assert_failure;
 	refute_output --partial asdf;
 
-	run rrssh run --- --- echo asdf --- take-file /bin/bash ../ dropdir;
+	run brrssh run --- --- echo asdf --- take-file /bin/bash ../ dropdir;
 	assert_failure;
 	refute_output --partial asdf;
 
-	run rrssh run --- --- echo asdf --- take-file /bin/bash ../. dropdir;
+	run brrssh run --- --- echo asdf --- take-file /bin/bash ../. dropdir;
 	assert_failure;
 	refute_output --partial asdf;
 
-	run rrssh run --- --- echo asdf --- take-file /bin/bash ../.. dropdir;
+	run brrssh run --- --- echo asdf --- take-file /bin/bash ../.. dropdir;
 	assert_failure;
 	refute_output --partial asdf;
 
-	run rrssh run --- --- echo qwer --- take-file /bin/bash asdf/asdf dropdir;
+	run brrssh run --- --- echo qwer --- take-file /bin/bash asdf/asdf dropdir;
 	assert_failure;
 	refute_output --partial qwer;
 }
 
 @test "pushing empty files works" {
 	touch "$temp_dir1/asdf.txt";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 take-file $(printf %q "$temp_dir1/asdf.txt") "" drop2
 host localhost [
 	drop-dir drop2 $(printf %q "$temp_dir2")
@@ -97,7 +98,7 @@ SCRIPT
 
 @test "pulling empty files works" {
 	touch "$temp_dir1/asdf.txt";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 drop-dir drop2 $(printf %q "$temp_dir2")
 host localhost [
 	take-file $(printf %q "$temp_dir1/asdf.txt") "" drop2
@@ -113,26 +114,26 @@ SCRIPT
 }
 
 @test "useless dropdirs are successful" {
-	run rrssh run --- drop-dir maindrop "$temp_dir1";
+	run brrssh run --- drop-dir maindrop "$temp_dir1";
 	assert_success;
 
-	run rrssh run --- drop-dir drop1 "$temp_dir1" drop-dir drop1 "$temp_dir2";
+	run brrssh run --- drop-dir drop1 "$temp_dir1" drop-dir drop1 "$temp_dir2";
 	assert_success;
 }
 
 @test "useless takes are successful" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run --- take-file "$temp_dir1/bash" "" drop1;
+	run brrssh run --- take-file "$temp_dir1/bash" "" drop1;
 	assert_success;
 	
-	run rrssh run --- take-file "$temp_dir1/bash" "" drop1 drop-dir drop2 "$temp_dir2";
+	run brrssh run --- take-file "$temp_dir1/bash" "" drop1 drop-dir drop2 "$temp_dir2";
 	assert_success;
 }
 
 
 @test "file pulling without renaming works" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 cd $(printf %q "$temp_dir2")
 drop-dir maindrop .
 host localhost [
@@ -156,7 +157,7 @@ SCRIPT
 
 @test "file pushing without renaming works" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 take-file $(printf %q "$temp_dir1/bash") '' maindrop
 host localhost [
 	host localhost [
@@ -179,7 +180,7 @@ SCRIPT
 
 @test "file transfers on the same host 1" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 host localhost [
 	drop-dir drop2 $(printf %q "$temp_dir2")
 	take-file $(printf %q "$temp_dir1/bash") "" drop2
@@ -196,7 +197,7 @@ SCRIPT
 
 @test "file transfers on the same host 2" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 host localhost [
 	drop-dir drop2 $(printf %q "$temp_dir2")
 	[
@@ -215,7 +216,7 @@ SCRIPT
 
 @test "file transfers on the same host 3" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 host localhost [
 	drop-dir drop2 $(printf %q "$temp_dir2")
 	[
@@ -236,7 +237,7 @@ SCRIPT
 
 @test "file transfers on the same host 4" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 host localhost [
 	take-file $(printf %q "$temp_dir1/bash") "" drop2
 	[
@@ -255,7 +256,7 @@ SCRIPT
 
 @test "file transfers on the same host 5" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 host localhost [
 	take-file $(printf %q "$temp_dir1/bash") "" drop2
 	[
@@ -276,7 +277,7 @@ SCRIPT
 
 @test "file transfers on the same host 6" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 drop-dir drop2 $(printf %q "$temp_dir2")
 take-file $(printf %q "$temp_dir1/bash") "" drop2
 SCRIPT
@@ -291,7 +292,7 @@ SCRIPT
 
 @test "file transfers on the same host 7" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 take-file $(printf %q "$temp_dir1/bash") "" drop2
 drop-dir drop2 $(printf %q "$temp_dir2")
 SCRIPT
@@ -306,7 +307,7 @@ SCRIPT
 
 @test "various file forwarding scenario 1" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh --fake-su run -f - <<SCRIPT;
+	run brrssh --fake-su run -f - <<SCRIPT;
 take-file $(printf %q "$temp_dir1/bash") "" drop2
 [
 	[
@@ -338,7 +339,7 @@ SCRIPT
 
 @test "various file forwarding scenario 2" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 take-file $(printf %q "$temp_dir1/bash") '' anydrop
 host localhost [
 	drop-dir anydrop $(printf %q "$temp_dir2")
@@ -362,7 +363,7 @@ SCRIPT
 
 @test "various file forwarding scenario 3" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 take-file $(printf %q "$temp_dir1/bash") '' anydrop
 host localhost [
 	host localhost [
@@ -390,7 +391,7 @@ SCRIPT
 
 @test "various file forwarding scenario 4" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 take-file $(printf %q "$temp_dir1/bash") '' anydrop
 host localhost [
 	drop-dir anydrop $(printf %q "$temp_dir2")
@@ -419,7 +420,7 @@ SCRIPT
 
 @test "various file pulling scenario 1" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh --fake-su run -f - <<SCRIPT;
+	run brrssh --fake-su run -f - <<SCRIPT;
 drop-dir drop2 $(printf %q "$temp_dir2")
 [
 	[
@@ -451,7 +452,7 @@ SCRIPT
 
 @test "various file pulling scenario 2" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 drop-dir anydrop $(printf %q "$temp_dir2")
 drop-dir anydrop $(printf %q "$temp_dir3")
 host localhost [
@@ -475,7 +476,7 @@ SCRIPT
 
 @test "various file pulling scenario 3" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 host localhost [
 	drop-dir anydrop $(printf %q "$temp_dir2")
 	drop-dir anydrop $(printf %q "$temp_dir3")
@@ -501,7 +502,7 @@ SCRIPT
 
 @test "various file pulling scenario 4" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 drop-dir anydrop $(printf %q "$temp_dir2")
 host localhost [
 	drop-dir anydrop $(printf %q "$temp_dir3")
@@ -527,7 +528,7 @@ SCRIPT
 
 @test "bidirectionnal file transfer" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 drop-dir anydrop $(printf %q "$temp_dir2")
 host localhost [
 	take-file $(printf %q "$temp_dir1/bash") '' anydrop
@@ -554,7 +555,7 @@ SCRIPT
 
 @test "conditionnal take-file and drops 1" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 host localhost [
 	try false and drop-dir anydrop $(printf %q "$temp_dir2")
 	drop-dir anydrop $(printf %q "$temp_dir3")
@@ -577,7 +578,7 @@ SCRIPT
 
 @test "conditionnal take-file and drops 2" {
 	cp /bin/bash "$temp_dir1/.";
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 host localhost [
 	drop-dir anydrop $(printf %q "$temp_dir2")
 	drop-dir anydrop $(printf %q "$temp_dir3")
@@ -597,7 +598,7 @@ SCRIPT
 }
 
 @test "multiple file transfers are routed properly" {
-	run rrssh run -f - <<SCRIPT;
+	run brrssh run -f - <<SCRIPT;
 take-file /bin/cat miaw drop2
 drop-dir drop3 $(printf %q "$temp_dir3")
 host localhost [
