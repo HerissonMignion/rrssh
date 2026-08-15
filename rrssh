@@ -168,10 +168,10 @@ EXECUTION
 
 COMMANDS
 
-	host <destination> [-o <option=value>]... [ <commands>... ]
-	host <destination> [-o <option=value>]... : <commands>...
-	sudo-host <destination> [-o <option=value>]... [ <commands>... ]
-	sudo-host <destination> [-o <option=value>]... : <commands>...
+	host <destination> [-n] [-o <option=value>]... [ <commands>... ]
+	host <destination> [-n] [-o <option=value>]... : <commands>...
+	sudo-host <destination> [-n] [-o <option=value>]... [ <commands>... ]
+	sudo-host <destination> [-n] [-o <option=value>]... : <commands>...
 
 		These commands are the main purpose of using rrssh.
 		Duplicates the rrssh kernel through a single ssh connection
@@ -182,8 +182,11 @@ COMMANDS
 		sudo variants will run the actual ssh command through sudo.
 
 		Options provided using -o will be forwarded to the ssh
-		command.  The following options will always be provided to
-		ssh: ConnectTimeout=10 ServerAliveInterval=15.
+		command.  The following options will always be given to ssh,
+		unless -n is provided:
+
+			ConnectTimeout=10
+			ServerAliveInterval=15.
 
 		Ex: host charles@appserver1 -o Port=10022 [ --- ls --- ]
 
@@ -1792,6 +1795,7 @@ command_fork() {
 	local arg_destination; # host commands
 	local arg_username; # su commands
 	local ssh_o_options=();
+	local ssh_default_options=(-o ConnectTimeout=10 -o ServerAliveInterval=15);
 	local scope_opening_token="";
 	local scope_closing_token="";
 	if ! ((is_scope_command)); then
@@ -1802,13 +1806,28 @@ command_fork() {
 
 		case "$command_name" in
 			(host|sudo-host)
-				while [ "$(peek_toplevel_args)" == -o ]; do
-					shift_toplevel_args;
-					any_toplevel_args_remaining || {
-						panic "The -o option needs one argument.";
-					};
-					ssh_o_options+=(-o "$(peek_toplevel_args)");
-					shift_toplevel_args;
+				while any_toplevel_args_remaining; do
+					case "$(peek_toplevel_args)" in
+						(-o)
+							shift_toplevel_args;
+							any_toplevel_args_remaining || {
+								panic "The -o option needs one argument.";
+							};
+							ssh_o_options+=(-o "$(peek_toplevel_args)");
+							shift_toplevel_args;
+							continue;
+							;;
+						(-n)
+							shift_toplevel_args;
+							ssh_default_options=();
+							continue;
+							;;
+						(*)
+							break;
+							;;
+					esac;
+					# this design prevents accidental infinite loops.
+					break;
 				done;
 				;;
 		esac;
@@ -2056,7 +2075,7 @@ LANDING_SCRIPT
 		fi;
 		if ((is_host_command)); then
 			# cmd+=(ssh -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -- "$arg_destination");
-			cmd+=(ssh -o ConnectTimeout=10 -o ServerAliveInterval=15 "${ssh_o_options[@]}" -- "$arg_destination");
+			cmd+=(ssh "${ssh_default_options[@]}" "${ssh_o_options[@]}" -- "$arg_destination");
 		elif ((is_su_command)); then
 			if ! ((opt_fake_su)); then
 				cmd+=(su - -- "$arg_username" -c);

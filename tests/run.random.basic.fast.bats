@@ -13,6 +13,24 @@ teardown() {
 	rm -f "$temp_file1";
 }
 
+@test "-n option works on host commands" {
+	run brrssh run --- host -n;
+	assert_failure;
+
+	run brrssh run --- host localhost -n;
+	assert_failure;
+
+	run brrssh run --- host localhost -n -o Port=22;
+	assert_failure;
+
+	run brrssh run --- host localhost -o Port=22 -n;
+	assert_failure;
+
+	run brrssh run --- host localhost -n [ print asdf ];
+	assert_success;
+	assert_output --partial asdf;
+}
+
 @test "-o option works on host commands" {
 	run brrssh run --- host;
 	assert_failure;
