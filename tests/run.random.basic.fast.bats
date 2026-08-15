@@ -29,6 +29,14 @@ teardown() {
 	run brrssh run --- host localhost -n [ print asdf ];
 	assert_success;
 	assert_output --partial asdf;
+
+	run brrssh run --- host localhost -o Port=22 -n [ print asdf ];
+	assert_success;
+	assert_output --partial asdf;
+
+	run brrssh run --- host localhost -n -o Port=22 [ print asdf ];
+	assert_success;
+	assert_output --partial asdf;
 }
 
 @test "-o option works on host commands" {
