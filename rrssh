@@ -7,8 +7,6 @@
 # MUST: Support older bash versions.  No fancy features other than
 # basic list manipulations.
 
-# TODO: améliorer l'anglais dans le message d'aide.
-
 
 help() {
 	cat <<"HELP";
@@ -603,9 +601,6 @@ testable id_asdgierguirh true;
 
 dump_bin() {
 	echo %binary_object;
-	# MAYBE TODO: i probably have to send useless chars and read them
-	# back because base64 doesn't seem to handle an actual empty
-	# stream.
 	base64 -w 10000;
 	echo %end;
 }
@@ -1823,9 +1818,6 @@ command_fork() {
 	local command_name;
 	command_name=$(peek_toplevel_args);
 	shift_toplevel_args;
-
-	# TODO: if forking locally, then dont reprint all files, put a
-	# reference to the first kernel on the current host.
 
 	local is_host_command=0;
 	local is_su_command=0;
@@ -3113,7 +3105,7 @@ main_execution_loop() {
 			if ((opt_p)) || ((is_root_kernel)); then
 				echocom @@exitcode;
 				dump_bin <<<"$current_chain_rc" 1>&3;
-				# TODO: add command chain and line number to error message
+				# TODO: add line number to error message
 				if ! ((rrssh_is_testing_environment)); then
 					panic "The command chain exited non-0." "Command chain: ( $(printf "%q " "${faulty_tokens[@]}"))" "${faulty_traces[@]}";
 				else
