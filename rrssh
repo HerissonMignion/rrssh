@@ -22,12 +22,12 @@ SYNOPSIS
 
 DESCRIPTION
 
-	An automation tool that uses SSH to jump through any number of
+	An automation tool that uses ssh to jump through any number of
 	hosts to run commands and transfer files and directories along the
 	way.  Its commands are a basic shell-like scripting language
-	provided via arguments or a file.  The panic mechanism will stop
-	its execution on any unhandled failure in the script, or an
-	internal rrssh failure.
+	provided via arguments or a file (see the examples below).  The
+	panic mechanism will stop its execution on any unhandled failure
+	in the script, or an internal rrssh failure.
 
 	The only requirements for the target hosts are the ssh server,
 	bash version 4.0.0 or newer and basic utilities.
@@ -346,11 +346,85 @@ ENVIRONMENT VARIABLES USED BY RRSSH'S TEST SUITE
 
 EXAMPLES
 
-	TODO
+	Handling error with the 'try', 'and' and 'or' operators:
+
+rrssh run --- try --- my uncertain command ---
+
+rrssh run --- --- my uncertain command --- and \
+	[ \
+		print "handle success here" \
+		print "use a scope [ ] for multiple commands" \
+	] or \
+	print "handle failure here"
+
+
+	Pushing files forward.  You must run a take command before going
+	on the remote hosts:
+
+rrssh run -f - <<"SCRIPT"
+take-file /tmp/script.sh "" my-drop
+host charles@homelabsrv1 [
+	drop-dir my-drop /tmp
+	try --- /tmp/script.sh --- and print "ended with success."
+	try --- rm /tmp/script.sh ---
+]
+SCRIPT
+
+
+	Pulling files backward.  You must create a drop directory before
+	going on the remote hosts:
+
+rrssh run -f - <<"SCRIPT"
+drop-dir my-drop /tmp
+host charles@homelabsrv1 [
+	take-file /var/log/myapp/error.log "" my-drop
+]
+SCRIPT
+
+
+	Generating a script.  Make sure you handle escaping properly.
+	This example is valid in bash:
+
+servers_commands=()
+for name in homelabsrv{1..4}; do
+	servers_commands+=(
+		host "$name" [
+			# every file is renamed to have a different name on the
+			# destination drop-dir.
+			take-file /var/log/myapp/error.log "error-$name.log" my-drop
+		]
+	)
+done
+drop_dir_path="/tmp/my temp dir with spaces"
+rrssh run --- drop-dir my-drop "$drop_dir_path" \
+	host homelabjump [ "${servers_commands[@]}" ]
+
+# or in an unquoted here document, use printf %q to handle escaping
+rrssh run -f - <<SCRIPT
+drop-dir my-drop $(printf %q "$drop_dir_path")
+host homelabjump [
+	$(printf "%q " "${servers_commands[@]}")
+]
+SCRIPT
 
 PROBLEMS
 
-	TODO
+	Ctrl-C can recursively kill a rrssh command, but mostly only
+	between 2 commands.  It will successively prevent the execution of
+	further commands, but if you wish to stop a long command, you must
+	connect to the remote host and kill it youself.
+
+	You may want to explore better solutions to transfer files and
+	directories when their compressed size gets in the range of 50 Mb
+	or more.  rrssh compresses all files and directories with gzip
+	because it usually reduces the size, but then it is encoded in
+	base 64 which increases the size.
+
+	When rrssh triggers its panic system because of an internal error
+	or because of the panic command, rrssh will cleanup all its
+	temporary files.  If there is a network outage or if an
+	intermediate host dies, for example, rrssh is designed to crash
+	but some scenarios may leave some temporary files on some hosts.
 
 HELP
 }
